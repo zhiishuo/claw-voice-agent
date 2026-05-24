@@ -1923,13 +1923,32 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path in ("/", "/chat"):
             html_response(self, load_frontend_text("index.html", INDEX_HTML))
             return
-        # 返回静态资源
-        if parsed.path == "/static/styles.css":
-            static_response(self, FRONTEND_DIR / "styles.css", "text/css; charset=utf-8")
-            return
-
-        if parsed.path == "/static/app.js":
-            static_response(self, FRONTEND_DIR / "app.js", "application/javascript; charset=utf-8")
+        # Serve copied frontend assets, including ES modules and images.
+        if parsed.path.startswith("/static/"):
+            rel = parsed.path[len("/static/"):]
+            if not rel:
+                json_response(self, HTTPStatus.NOT_FOUND, {"error": "not_found"})
+                return
+            target = (FRONTEND_DIR / rel).resolve()
+            root = FRONTEND_DIR.resolve()
+            if target != root and root not in target.parents:
+                json_response(self, HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                return
+            ext = target.suffix.lower()
+            content_type = {
+                ".css": "text/css; charset=utf-8",
+                ".js": "application/javascript; charset=utf-8",
+                ".mjs": "application/javascript; charset=utf-8",
+                ".json": "application/json; charset=utf-8",
+                ".html": "text/html; charset=utf-8",
+                ".png": "image/png",
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".svg": "image/svg+xml",
+                ".webp": "image/webp",
+                ".ico": "image/x-icon",
+            }.get(ext, "application/octet-stream")
+            static_response(self, target, content_type)
             return
         # 认证检查
         if parsed.path == "/api/auth/check":

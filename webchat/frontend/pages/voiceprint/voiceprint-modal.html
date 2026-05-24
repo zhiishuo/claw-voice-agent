@@ -1,0 +1,58 @@
+<!-- Voiceprint Collection Modal Component -->
+<div id="voiceprintModal" class="voiceprint-modal hidden" role="dialog" aria-modal="true" aria-labelledby="voiceprintTitle">
+  <div class="voiceprint-modal__backdrop" data-close-voiceprint="1"></div>
+  <div class="voiceprint-modal__panel">
+    <div class="voiceprint-modal__head">
+      <div id="voiceprintTitle" class="voiceprint-modal__title">声纹采集</div>
+      <button id="voiceprintCloseBtn" class="voiceprint-modal__close" type="button">×</button>
+    </div>
+    <div class="voiceprint-modal__body">
+      <div class="voiceprint-container">
+        <!-- 进度指示器 -->
+        <div class="voiceprint-progress">
+          <div class="voiceprint-progress__bar">
+            <div id="voiceprintProgressFill" class="voiceprint-progress__fill"></div>
+          </div>
+          <div id="voiceprintProgressText" class="voiceprint-progress__text">第 1 步，共 3 步</div>
+        </div>
+
+        <!-- 引导文本 -->
+        <div class="voiceprint-guidance">
+          <div id="voiceprintPrompt" class="voiceprint-guidance__prompt">请阅读以下短语</div>
+          <div id="voiceprintPhrase" class="voiceprint-guidance__phrase">你好，我是语音助手</div>
+          <div id="voiceprintHint" class="voiceprint-guidance__hint">清晰地读出上面的短语</div>
+        </div>
+
+        <!-- 录音按钮区 -->
+        <div class="voiceprint-recorder">
+          <div class="voiceprint-status" id="voiceprintStatus">准备就绪</div>
+          <button id="voiceprintRecordBtn" class="voiceprint-record-btn" aria-label="开始录音">
+            <span class="voiceprint-record-btn__dot"></span>
+          </button>
+          <div class="voiceprint-timer" id="voiceprintTimer">00:00</div>
+        </div>
+
+        <!-- 录音结果区 -->
+        <div id="voiceprintReviewContainer" class="voiceprint-review hidden">
+          <div class="voiceprint-review__title">本段录音</div>
+          <audio id="voiceprintReviewAudio" controls preload="metadata"></audio>
+          <div class="voiceprint-review__actions">
+            <button id="voiceprintSegmentConfirmBtn" class="primary" type="button">确认这一段</button>
+            <button id="voiceprintSegmentRetryBtn" type="button">重新录音</button>
+          </div>
+        </div>
+
+        <!-- 采集完成区 -->
+        <div id="voiceprintCollectionComplete" class="voiceprint-complete hidden">
+          <div class="voiceprint-complete__icon">✓</div>
+          <div class="voiceprint-complete__title">采集完成</div>
+          <div class="voiceprint-complete__detail" id="voiceprintCompleteDetail">已采集 3 段语音</div>
+          <div class="voiceprint-complete__actions">
+            <button id="voiceprintFinalConfirmBtn" class="primary" type="button">完成采集</button>
+            <button id="voiceprintStartOverBtn" type="button">重新开始</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

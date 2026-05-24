@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Claw 语音工作台</title>
+  <title>语音工作台</title>
     <link rel="stylesheet" href="/static/styles.css" />
 
 </head>
@@ -11,14 +11,16 @@
   <div class="app">
     <div class="topbar">
       <div class="brand">
-        <div class="brand__eyebrow">Claw Voice Desk</div>
-        <div class="title">Claw 语音工作台</div>
-        <div class="subtitle">先确认麦克风输入正常，再把浏览器原始录音上传到服务器转写；转写文本确认后，再决定是否送进 OpenClaw。</div>
-      </div>
-      <div class="session-row">
-        <span class="badge">Session</span>
-        <input id="sessionInput" type="text" style="width:240px" />
-        <button id="newSessionBtn">新会话</button>
+        <div class="brand__eyebrow">
+          <button id="debugModeToggle" class="brand__robot-btn" type="button" aria-label="切换调试模式">
+            <img src="/static/resource/logoA1.png" alt="" />
+          </button>
+          <span class="brand__wordmark">
+            <span class="brand__english">VOICE DESK</span>
+            <span class="brand__title">语音工作台</span>
+          </span>
+        </div>
+        <div class="subtitle">先确认麦克风输入正常，再把浏览器原始录音上传到服务器转写；转写文本确认后，再决定是否送进语音智能体。</div>
       </div>
       <div class="auth-row">
         <span class="badge">访问令牌</span>
@@ -26,12 +28,26 @@
         <button id="authBtn">连接</button>
         <span id="authStatus" class="auth-status">未认证</span>
       </div>
-      <div class="fast-row">
-        <span class="badge badge--fast" id="fastModeStatus">标准模式</span>
-        <button id="fastModeBtn" class="fast-mode-btn" type="button">进入轻量模式</button>
+      <div class="session-row">
+        <span class="badge">Session</span>
+        <input id="sessionInput" type="text" style="width:240px" />
+        <button id="newSessionBtn">新会话</button>
       </div>
     </div>
     <div class="workspace">
+      <aside class="panel session-sidebar">
+        <div class="session-sidebar__head">
+          <div>
+            <div class="session-sidebar__title">历史会话</div>
+            <div class="session-sidebar__subtitle">按最近使用排序</div>
+          </div>
+          <div class="session-sidebar__actions">
+            <button id="sessionSidebarClearBtn" class="session-sidebar__clear" type="button">清空</button>
+            <button id="sessionSidebarNewBtn" class="session-sidebar__new" type="button">新建</button>
+          </div>
+        </div>
+        <div id="sessionList" class="session-list" aria-label="历史 session"></div>
+      </aside>
       <aside class="panel robot-panel">
         <div class="robot-panel__body">
           <div class="robot-card" id="robotCard">
@@ -53,6 +69,11 @@
               <div class="robot-card__mode-label" id="robotModeLabel">待命</div>
               <div class="robot-card__mode-detail" id="robotModeDetail">选择麦克风后开始录音。</div>
             </div>
+          </div>
+          <div class="speaker-card" id="speakerCard">
+            <div class="speaker-card__label">当前识别角色</div>
+            <div class="speaker-card__name" id="speakerName">等待识别</div>
+            <div class="speaker-card__status" id="speakerStatus">声纹待核验</div>
           </div>
           <div class="robot-flow" id="pipelineSteps"></div>
           <div class="robot-bubble-stack">
@@ -87,104 +108,209 @@
         </div>
       </aside>
       <main class="workspace-main">
-        <div class="panel"><div id="messages" class="messages"></div></div>
+        <div class="panel chat-panel">
+          <div id="messages" class="messages"></div>
+        </div>
         <div class="panel composer">
+      <section class="quick-replies-panel" aria-labelledby="quickRepliesTitle">
+        <div id="quickRepliesTitle" class="quick-replies-title">推荐对话</div>
+        <div id="quickReplies" class="quick-replies"></div>
+      </section>
       <textarea id="draft" placeholder="输入消息，或点录音/上传音频"></textarea>
+      <div id="transcriptReview" class="transcript-review hidden" aria-live="polite">
+        <div class="transcript-review__title">有语音解析结果如下</div>
+        <div id="transcriptReviewHint" class="transcript-review__hint">可在输入框中修改后再确认发送。</div>
+        <textarea id="transcriptReviewEditor" class="transcript-review__editor" placeholder="语音解析结果"></textarea>
+        <div class="transcript-review__actions">
+          <button id="transcriptConfirmBtn" class="primary" type="button">确认发送</button>
+          <button id="transcriptCancelBtn" type="button">取消</button>
+        </div>
+      </div>
+      <div id="recordReview" class="record-review hidden" aria-live="polite">
+        <div class="record-review__head">
+          <div class="record-review__title">录音已完成</div>
+          <div id="recordReviewMeta" class="record-review__meta"></div>
+        </div>
+        <audio id="recordReviewAudio" controls preload="metadata"></audio>
+        <div class="record-review__actions">
+          <button id="recordConfirmBtn" class="primary" type="button">确认上传</button>
+          <button id="recordCancelBtn" type="button">取消</button>
+        </div>
+      </div>
       <div class="controls">
-        <div class="controls-left">
+        <div class="controls-left controls-row controls-row--primary">
           <button id="sendBtn" class="primary">发送</button>
           <button id="recordBtn" class="accent2">录音</button>
-          <button id="uploadBtn">导入音频</button>
-          <input id="audioInput" class="hidden" type="file" accept="audio/*" />
-        </div>
-        <div class="controls-right"><button id="reloadBtn">刷新</button></div>
-      </div>
-      <div class="controls">
-        <div class="controls-left">
-          <span class="badge">麦克风设备</span>
-          <select id="micSelect" style="min-width:260px"></select>
-          <button id="refreshMicsBtn">刷新</button>
-        </div>
-        <div class="controls-right">
-          <div class="meter">
-            <div class="meter__bar"><div id="inputLevelFill" class="meter__fill"></div></div>
+          <div class="meter meter--inline" aria-label="录音电平">
+            <!-- <div class="meter__bar"><div id="inputLevelFill" class="meter__fill"></div></div> -->
+            <canvas id="visualizerCanvas" width="150" height="24" style="border-radius: 4px; display: block; border: 1px solid var(--border); background: var(--bg);"></canvas>
             <div id="inputLevelText" class="meter__text">0%</div>
           </div>
+          <button id="uploadBtn">导入音频</button>
+          <button id="voiceprintBtn">声纹注册</button>
+          <button id="knowledgeTestBtn" type="button">知识库测试</button>
         </div>
-      </div>
-      <div class="controls">
-        <div class="controls-left">
-          <span class="badge">唤醒词</span>
-          <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted);">
-            <input id="wakeToggle" type="checkbox" />
-            自动唤醒
-          </label>
-          <input id="wakePhraseInput" type="text" style="width:180px" placeholder="你好" />
-        </div>
-        <div class="controls-right">
-          <span id="wakeStatus" class="status">唤醒词待关闭</span>
-        </div>
-      </div>
-      <div class="speaker-panel">
-        <div class="speaker-panel__head">
-          <span class="badge">身份确认</span>
-          <div class="speaker-panel__actions">
-            <select id="speakerSelect" style="min-width:140px"></select>
-            <input id="speakerIdInput" type="text" style="width:140px" placeholder="身份 ID" />
-            <button id="speakerSwitchBtn">切换身份</button>
-            <select id="speakerMatchModeSelect" style="min-width:170px">
-              <option value="all">所有身份可唤醒</option>
-              <option value="current">仅当前身份可唤醒</option>
-            </select>
-            <button id="speakerEnrollBtn">注册声纹</button>
-            <button id="speakerRefreshBtn">刷新身份状态</button>
+        <div class="controls-row controls-row--device">
+          <div class="mic-quick-control">
+            <span id="micAvailableStatus" class="mic-available-status">状态: 检测中</span>
+            <select id="micQuickSelect" class="mic-quick-select" aria-label="当前麦克风设备"></select>
           </div>
         </div>
-        <div id="speakerStatus" class="speaker-status">
-          <span>声纹验证：未知</span>
-          <span>当前身份：owner</span>
-          <span>注册样本数：0</span>
-          <span>最近验证分数：-</span>
-          <span>最近验证结果：-</span>
+        <div class="controls-row controls-row--mode">
+          <div class="voice-input-mode" id="voiceInputMode" role="group" aria-label="语音输入模式">
+            <button class="voice-input-mode__option" type="button" data-voice-input-mode="stream">连续语音</button>
+            <button class="voice-input-mode__option" type="button" data-voice-input-mode="ptt">PTT 单指令</button>
+          </div>
+        </div>
+        <div class="controls-right controls-row controls-row--secondary">
+          <button id="traceHistoryBtn" type="button">记录回看</button>
+          <button id="debugTerminalBtn" type="button">调试终端</button>
+          <button id="advancedSettingsBtn" class="advanced-settings-trigger">详细设置</button>
+          <button id="reloadBtn">刷新</button>
+          <input id="audioInput" class="hidden" type="file" accept="audio/*" />
         </div>
       </div>
-      <div class="controls">
-        <div class="controls-left">
-          <span class="badge">转写语言</span>
-          <select id="languageSelect">
-            <option value="zh">中文</option>
-            <option value="auto">自动</option>
-            <option value="en">English</option>
-          </select>
-        </div>
-        <div class="controls-right">
-          <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted);">
-            <input id="autoSendToggle" type="checkbox" />
-            转写后自动发送给 OpenClaw
-          </label>
-        </div>
-      </div>
-      <div class="controls">
-        <div class="controls-left">
-          <span class="badge">模式</span>
-          <select id="ttsModeSelect">
-            <option value="api">Microsoft API</option>
-            <option value="cosyvoice">CosyVoice 本地</option>
-          </select>
-          <span class="badge">回复语音</span>
-          <select id="ttsVoiceSelect">
-            <option value="zh-CN-XiaoxiaoNeural">晓晓</option>
-            <option value="zh-CN-XiaoyiNeural">晓伊</option>
-            <option value="zh-CN-YunyangNeural">云扬</option>
-          </select>
-        </div>
-        <div class="controls-right">
-          <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted);">
-            <input id="autoTtsToggle" type="checkbox" />
-            回复后自动合成并播放
-          </label>
+
+      <!-- Voiceprint Modal Component (imported from pages/voiceprint/voiceprint-modal.html) -->
+      <div id="voiceprintModalPlaceholder"></div>
+
+      <div id="traceHistoryModal" class="trace-modal hidden" role="dialog" aria-modal="true" aria-labelledby="traceHistoryTitle">
+        <div class="trace-modal__backdrop" data-close-trace-history="1"></div>
+        <div class="trace-modal__panel">
+          <div class="trace-modal__head">
+            <div>
+              <div id="traceHistoryTitle" class="trace-modal__title">语音任务留痕</div>
+              <div id="traceHistorySubtitle" class="trace-modal__subtitle">当前会话记录</div>
+            </div>
+            <div class="trace-modal__actions">
+              <button id="traceHistoryClearBtn" type="button">清空</button>
+              <button id="traceHistoryCloseBtn" class="trace-modal__close" type="button">关闭</button>
+            </div>
+          </div>
+          <div id="traceHistoryList" class="trace-history-list"></div>
         </div>
       </div>
+
+      <div id="debugTerminalModal" class="debug-terminal-modal hidden" role="dialog" aria-modal="true" aria-labelledby="debugTerminalTitle">
+        <div class="debug-terminal-modal__backdrop" data-close-debug-terminal="1"></div>
+        <div class="debug-terminal-modal__panel">
+          <div class="debug-terminal-modal__head">
+            <div>
+              <div id="debugTerminalTitle" class="debug-terminal-modal__title">调试终端</div>
+              <div id="debugTerminalSubtitle" class="debug-terminal-modal__subtitle">异常告警与原始日志</div>
+            </div>
+            <div class="debug-terminal-modal__actions">
+              <button id="debugTerminalRefreshBtn" type="button">刷新</button>
+              <button id="debugTerminalCloseBtn" class="debug-terminal-modal__close" type="button">关闭</button>
+            </div>
+          </div>
+          <div class="debug-terminal-body">
+            <section class="debug-terminal-section">
+              <div class="debug-terminal-section__title">当前健康状态</div>
+              <div id="debugHealthGrid" class="debug-health-grid"></div>
+            </section>
+            <section class="debug-terminal-section">
+              <div class="debug-terminal-section__title">异常告警</div>
+              <div id="debugAlertList" class="debug-alert-list"></div>
+            </section>
+            <section class="debug-terminal-section">
+              <div class="debug-terminal-section__title">原始调试日志</div>
+              <div id="debugRawLog" class="debug-raw-log"></div>
+            </section>
+          </div>
+        </div>
+      </div>
+
+      <div id="advancedSettingsModal" class="advanced-modal hidden" role="dialog" aria-modal="true" aria-labelledby="advancedSettingsTitle">
+        <div class="advanced-modal__backdrop" data-close-advanced="1"></div>
+        <div class="advanced-modal__panel">
+          <div class="advanced-modal__head">
+            <div id="advancedSettingsTitle" class="advanced-modal__title">详细设置</div>
+            <button id="advancedSettingsCloseBtn" class="advanced-modal__close" type="button">关闭</button>
+          </div>
+          <div class="advanced-modal__body">
+            <div class="controls">
+              <div class="controls-left">
+                <span class="badge">麦克风设备</span>
+                <select id="micSelect" style="min-width:320px"></select>
+                <button id="refreshMicsBtn" type="button">刷新</button>
+              </div>
+            </div>
+            <div class="controls">
+              <div class="controls-left">
+                <span class="badge">界面密度</span>
+                <select id="uiDensitySelect">
+                  <option value="comfortable">标准</option>
+                  <option value="compact">紧凑</option>
+                </select>
+              </div>
+            </div>
+            <div class="controls">
+              <div class="controls-left">
+                <span class="badge">唤醒词</span>
+                <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted);">
+                  <input id="wakeToggle" type="checkbox" />
+                  自动唤醒
+                </label>
+                <input id="wakePhraseInput" type="text" style="width:180px" placeholder="你好" />
+              </div>
+              <div class="controls-right">
+                <span id="wakeStatus" class="status">唤醒词待关闭</span>
+              </div>
+            </div>
+            <div class="controls">
+              <div class="controls-left">
+                <span class="badge">转写语言</span>
+                <select id="languageSelect">
+                  <option value="zh">中文</option>
+                  <option value="auto">自动</option>
+                  <option value="en">English</option>
+                </select>
+              </div>
+              <div class="controls-right">
+                <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted);">
+                  <input id="autoSendToggle" type="checkbox" />
+                  转写后自动发送给语音智能体
+                </label>
+              </div>
+            </div>
+            <div class="controls">
+              <div class="controls-left">
+                <span class="badge">对话模型来源</span>
+                <select id="llmBackendSelect">
+                  <option value="local">本地大模型</option>
+                  <option value="remote">远程 API 大模型（未接入）</option>
+                </select>
+              </div>
+              <div class="controls-right">
+                <span id="llmBackendStatus" class="status">当前聊天仍使用本地大模型接口</span>
+              </div>
+            </div>
+            <div class="controls">
+              <div class="controls-left">
+                <span class="badge">模式</span>
+                <select id="ttsModeSelect">
+                  <option value="api">Microsoft API</option>
+                  <option value="cosyvoice">CosyVoice 本地</option>
+                </select>
+                <span class="badge">回复语音</span>
+                <select id="ttsVoiceSelect">
+                  <option value="zh-CN-XiaoxiaoNeural">晓晓</option>
+                  <option value="zh-CN-XiaoyiNeural">晓伊</option>
+                  <option value="zh-CN-YunyangNeural">云扬</option>
+                </select>
+              </div>
+              <div class="controls-right">
+                <label style="display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted);">
+                  <input id="autoTtsToggle" type="checkbox" />
+                  回复后自动合成并播放
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
           <div id="status" class="status"></div>
         </div>
         <div class="panel process">
@@ -197,35 +323,7 @@
       </main>
     </div>
   </div>
-  <div id="speakerEnrollModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="speakerEnrollTitle">
-    <div class="modal__dialog">
-      <div class="modal__head">
-        <div>
-          <div id="speakerEnrollTitle" class="modal__title">注册声纹</div>
-          <div class="modal__subtitle">请按提示重复当前唤醒词，完成后才会保存为身份样本。</div>
-        </div>
-        <button id="speakerEnrollCloseBtn" class="modal__close" type="button" aria-label="关闭">×</button>
-      </div>
-      <div class="speaker-enroll">
-        <div class="speaker-enroll__phrase">
-          <span>请说：</span>
-          <strong id="speakerEnrollPhrase">你好</strong>
-        </div>
-        <div id="speakerEnrollProgress" class="speaker-enroll__progress">第 1 / 3 遍</div>
-        <div id="speakerEnrollHint" class="speaker-enroll__hint">点击“开始录本遍”，听到后自然说出唤醒词。</div>
-        <div class="speaker-enroll__meter">
-          <div class="meter__bar"><div id="speakerEnrollLevelFill" class="meter__fill"></div></div>
-          <div id="speakerEnrollLevelText" class="meter__text">0%</div>
-        </div>
-        <div class="speaker-enroll__actions">
-          <button id="speakerEnrollRecordBtn" class="accent2" type="button">开始录本遍</button>
-          <button id="speakerEnrollSubmitBtn" class="primary" type="button" disabled>保存声纹</button>
-          <button id="speakerEnrollCancelBtn" type="button">取消</button>
-        </div>
-      </div>
-    </div>
-  </div>
-    <script src="/static/app.js"></script>
+    <script type="module" src="/static/app.js"></script>
 
 </body>
 </html>

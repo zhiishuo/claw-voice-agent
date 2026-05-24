@@ -10,31 +10,23 @@
 - 本地 LLM 回复
 - 本地 / API 可切换 TTS
 
-## 当前运行格式
 
-当前代码是按下面的结构组织的：
-
+远程硅基流动apikey 知识库自然对话启动测试
 ```text
-.
-├── README.md
-├── frontend/
-│   ├── index.html
-│   ├── styles.css
-│   └── app.js
-├── services/
-│   ├── webchat/
-│   │   └── server.py
-│   ├── wake/
-│   │   ├── sherpa_kws_server.py
-│   │   └── wake_keywords.txt
-│   ├── tts/
-│   │   └── cosyvoice_server.py
-│   ├── asr/
-│   └── agent/
-└── deploy/
-    ├── config/
-    │   └── openclaw.json.example
-    └── systemd/
+$env:OPENCLAW_WEBCHAT_PORT="18890"
+
+$env:OPENCLAW_KB_ENABLED="true"
+$env:OPENCLAW_KB_OUTPUT_DIR=".openclaw-kb_moke"
+$env:OPENCLAW_KB_EMBEDDING_MODEL="shibing624/text2vec-base-chinese"
+$env:OPENCLAW_KB_RETRIEVAL_MODE="hybrid"
+
+$env:OPENCLAW_FAST_LLM_URL="https://api.siliconflow.cn/v1/chat/completions" 
+$env:OPENCLAW_FAST_LLM_MODEL="Qwen/Qwen2.5-7B-Instruct"
+$env:OPENCLAW_FAST_LLM_API_KEY=""
+$env:OPENCLAW_FAST_LLM_MAX_TOKENS="512"
+$env:OPENCLAW_FAST_LLM_TIMEOUT="30"
+
+python webchat\server_fast.py
 ```
 
 ## 当前使用的模型和组件
@@ -138,6 +130,7 @@ POST /api/knowledge/search
 - `app.js`
 
 这里主要放：
+
 - 页面结构
 - 样式
 - 前端交互
@@ -150,6 +143,7 @@ POST /api/knowledge/search
 - `server.py`
 
 这里主要负责：
+
 - 网页入口
 - 静态资源加载
 - `/api/chat`
@@ -166,6 +160,7 @@ POST /api/knowledge/search
 - `wake_keywords.txt`
 
 这里主要负责：
+
 - 专用 KWS
 - 关键词配置
 - 唤醒检测服务
@@ -175,10 +170,12 @@ POST /api/knowledge/search
 ASR 相关入口和说明。
 
 当前仓库里主要通过：
+
 - `services/webchat/server.py`
 - `deploy/systemd/fw-whisper.service`
 
 这里对应：
+
 - 音频转写
 - ASR 调用链路
 - 短句识别稳定性
@@ -190,6 +187,7 @@ TTS 服务。
 - `cosyvoice_server.py`
 
 这里主要负责：
+
 - 本地 CosyVoice
 - 本地 TTS 输出
 - TTS 服务接口
@@ -199,10 +197,12 @@ TTS 服务。
 Agent / LLM 相关入口。
 
 当前主要通过：
+
 - `deploy/config/openclaw.json.example`
 - `services/webchat/server.py` 里的 `run_openclaw()`
 
 这里对应：
+
 - OpenClaw
 - prompt
 - tool routing
@@ -323,6 +323,7 @@ $HOME/.openclaw/webchat/speakers/<speaker_id>/enroll_*.wav
 - `config/openclaw.json.example`
 
 这里主要放：
+
 - systemd service 模板
 - 配置模板
 - 部署相关文件

@@ -1,12 +1,13 @@
-    const PIPELINE_ORDER = ["record", "upload", "transcribe", "transcript", "claw", "tts"];
-    const PIPELINE_LABELS = {
-      record: "1. 录音",
-      upload: "2. 上传到服务器",
-      transcribe: "3. 服务器转写",
-      transcript: "4. 得到文本",
-      claw: "5. 送进 OpenClaw",
-      tts: "6. 回复语音",
-    };
+    import { PIPELINE_ORDER, PIPELINE_LABELS } from "/static/modules/pipeline.js";
+    import { fmtTime, fmtDuration } from "/static/modules/time.js";
+    import { createApiClient } from "/static/modules/api-client.js";
+    import { createChatView } from "/static/modules/chat-view.js";
+    import { renderPipelineView } from "/static/modules/pipeline-view.js";
+    import { normalizeWakeText, wakeLanguageCode, wakeChunkMs, base64Utf8 } from "/static/modules/wake-utils.js";
+    import { encodeWavBlobFromFloat32 } from "/static/modules/audio-codec.js";
+    import { autoplayProofAudio } from "/static/modules/tts-playback.js";
+    import { createUiModeController } from "/static/modules/ui-mode.js";
+
     const state = {
       session: null,
       busy: false,
@@ -24,6 +25,9 @@
       processEntries: [],
       stepState: {},
       stepStartedAt: {},
+      stepDurations: {},
+      pipelineExpanded: {},
+      pipelineRenderTimer: null,
       transcriptLanguage: "zh",
       autoSend: false,
       pendingTranscript: "",
@@ -37,6 +41,8 @@
       autoTts: true,
       ttsVoice: "zh-CN-XiaoxiaoNeural",
       ttsMode: "api",
+      llmBackend: "local",
+      voiceInputMode: "ptt",
       authToken: "",
       authenticated: false,
       wakeEnabled: true,
@@ -49,75 +55,92 @@
       wakePending: false,
       wakeChunkBuffers: [],
       wakeChunkSamples: 0,
-      wakeSamplesSinceLastCheck: 0,
       wakeChunkSampleRate: 16000,
       wakeProcessor: null,
       wakeSilentGain: null,
       currentRecordAutoSend: false,
       currentRecordWakeTriggered: false,
-      speakerStatus: null,
-      currentSpeakerId: localStorage.getItem("openclaw-webchat-speaker-id") || "owner",
-      speakerMatchMode: localStorage.getItem("openclaw-webchat-speaker-match-mode") || "all",
-      speakerEnrollRecording: false,
-      speakerEnrollOpen: false,
-      speakerEnrollSamples: [],
-      speakerEnrollTargetSamples: 2,
-      speakerEnrollLevel: 0,
-      lastSpeakerScore: null,
-      lastSpeakerResult: "",
-      lastSpeakerReason: "",
       autoStopOnSilence: false,
       recordStartedAt: 0,
       speechSeenAt: 0,
       silenceSince: 0,
       stopRequested: false,
       wakeDebugTimer: null,
+      flowChecklistVisible: false,
+      pendingRecord: null,
+      sessions: [],
+      voiceMessages: {},
     };
 
     const $ = (id) => document.getElementById(id);
     const messagesEl = $("messages");
+    const composerEl = document.querySelector(".composer");
     const statusEl = $("status");
     const draftEl = $("draft");
+    const transcriptReviewEl = $("transcriptReview");
+    const transcriptReviewHintEl = $("transcriptReviewHint");
+    const transcriptReviewEditorEl = $("transcriptReviewEditor");
+    const transcriptConfirmBtn = $("transcriptConfirmBtn");
+    const transcriptCancelBtn = $("transcriptCancelBtn");
     const sessionEl = $("sessionInput");
+    const sessionListEl = $("sessionList");
+    const sessionSidebarNewBtn = $("sessionSidebarNewBtn");
+    const sessionSidebarClearBtn = $("sessionSidebarClearBtn");
     const tokenInputEl = $("tokenInput");
     const authBtnEl = $("authBtn");
     const authStatusEl = $("authStatus");
-    const fastModeBtnEl = $("fastModeBtn");
-    const fastModeStatusEl = $("fastModeStatus");
     const sendBtn = $("sendBtn");
     const recordBtn = $("recordBtn");
     const uploadBtn = $("uploadBtn");
+    const knowledgeTestBtn = $("knowledgeTestBtn");
+    const debugModeToggleEl = $("debugModeToggle");
+    const uiModeBadgeEl = $("uiModeBadge");
+    const uiDensitySelectEl = $("uiDensitySelect");
+    const voiceInputModeEl = $("voiceInputMode");
+    const quickRepliesEl = $("quickReplies");
+    const quickRepliesPanelEl = quickRepliesEl?.closest(".quick-replies-panel") || null;
+    const traceHistoryBtn = $("traceHistoryBtn");
+    const traceHistoryModalEl = $("traceHistoryModal");
+    const traceHistoryCloseBtn = $("traceHistoryCloseBtn");
+    const traceHistoryClearBtn = $("traceHistoryClearBtn");
+    const traceHistorySubtitleEl = $("traceHistorySubtitle");
+    const traceHistoryListEl = $("traceHistoryList");
+    const debugTerminalBtn = $("debugTerminalBtn");
+    const debugTerminalModalEl = $("debugTerminalModal");
+    const debugTerminalCloseBtn = $("debugTerminalCloseBtn");
+    const debugTerminalRefreshBtn = $("debugTerminalRefreshBtn");
+    const debugTerminalSubtitleEl = $("debugTerminalSubtitle");
+    const debugHealthGridEl = $("debugHealthGrid");
+    const debugAlertListEl = $("debugAlertList");
+    const debugRawLogEl = $("debugRawLog");
+    const advancedSettingsBtn = $("advancedSettingsBtn");
+    const advancedSettingsModalEl = $("advancedSettingsModal");
+    const advancedSettingsCloseBtn = $("advancedSettingsCloseBtn");
     const audioInput = $("audioInput");
     const micSelectEl = $("micSelect");
+    const micQuickSelectEl = $("micQuickSelect");
     const refreshMicsBtn = $("refreshMicsBtn");
+    const micAvailableStatusEl = $("micAvailableStatus");
     const inputLevelFillEl = $("inputLevelFill");
     const inputLevelTextEl = $("inputLevelText");
+    const visualizerCanvas = $("visualizerCanvas");
+    const visualizerCtx = visualizerCanvas ? visualizerCanvas.getContext("2d", { willReadFrequently: true }) : null;
+    const recordReviewEl = $("recordReview");
+    const recordReviewMetaEl = $("recordReviewMeta");
+    const recordReviewAudioEl = $("recordReviewAudio");
+    const recordConfirmBtn = $("recordConfirmBtn");
+    const recordCancelBtn = $("recordCancelBtn");
     const wakeToggleEl = $("wakeToggle");
     const wakePhraseInputEl = $("wakePhraseInput");
     const wakeStatusEl = $("wakeStatus");
-    const speakerStatusEl = $("speakerStatus");
-    const speakerSelectEl = $("speakerSelect");
-    const speakerIdInputEl = $("speakerIdInput");
-    const speakerSwitchBtn = $("speakerSwitchBtn");
-    const speakerMatchModeSelectEl = $("speakerMatchModeSelect");
-    const speakerEnrollBtn = $("speakerEnrollBtn");
-    const speakerRefreshBtn = $("speakerRefreshBtn");
-    const speakerEnrollModalEl = $("speakerEnrollModal");
-    const speakerEnrollCloseBtn = $("speakerEnrollCloseBtn");
-    const speakerEnrollCancelBtn = $("speakerEnrollCancelBtn");
-    const speakerEnrollRecordBtn = $("speakerEnrollRecordBtn");
-    const speakerEnrollSubmitBtn = $("speakerEnrollSubmitBtn");
-    const speakerEnrollPhraseEl = $("speakerEnrollPhrase");
-    const speakerEnrollProgressEl = $("speakerEnrollProgress");
-    const speakerEnrollHintEl = $("speakerEnrollHint");
-    const speakerEnrollLevelFillEl = $("speakerEnrollLevelFill");
-    const speakerEnrollLevelTextEl = $("speakerEnrollLevelText");
     const reloadBtn = $("reloadBtn");
     const newSessionBtn = $("newSessionBtn");
     const pipelineStepsEl = $("pipelineSteps");
     const processLogEl = $("processLog");
     const languageSelectEl = $("languageSelect");
     const autoSendToggleEl = $("autoSendToggle");
+    const llmBackendSelectEl = $("llmBackendSelect");
+    const llmBackendStatusEl = $("llmBackendStatus");
     const ttsVoiceSelectEl = $("ttsVoiceSelect");
     const ttsModeSelectEl = $("ttsModeSelect");
     const autoTtsToggleEl = $("autoTtsToggle");
@@ -135,6 +158,9 @@
     const robotCardEl = $("robotCard");
     const robotModeLabelEl = $("robotModeLabel");
     const robotModeDetailEl = $("robotModeDetail");
+    const speakerCardEl = $("speakerCard");
+    const speakerNameEl = $("speakerName");
+    const speakerStatusEl = $("speakerStatus");
     const robotEyeLeftEl = $("robotEyeLeft");
     const robotEyeRightEl = $("robotEyeRight");
     const robotMouthFillEl = $("robotMouthFill");
@@ -142,15 +168,30 @@
     const robotUserBubbleTextEl = $("robotUserBubbleText");
     const robotAssistantBubbleEl = $("robotAssistantBubble");
     const robotAssistantBubbleTextEl = $("robotAssistantBubbleText");
+    const chatView = createChatView({ messagesEl });
+    const addMessage = chatView.addMessage;
+    const renderMessages = chatView.renderMessages;
+    const updateFlowChecklist = chatView.updateFlowChecklist;
+    const clearFlowChecklist = chatView.clearFlowChecklist;
+    const beginNewFlowChecklist = chatView.beginNewFlowChecklist;
     const sessionStore = window.sessionStorage;
     const WAKE_REARM_MS = 2500;
     const AUTO_STOP_MAX_MS = 15000;
     const AUTO_STOP_SILENCE_MS = 1200;
     const AUTO_STOP_LEVEL = 0.028;
-    const WAKE_WINDOW_MS_EN = 1500;
-    const WAKE_STEP_MS_EN = 500;
-    const WAKE_WINDOW_MS_ZH = 3000;
-    const WAKE_STEP_MS_ZH = 1000;
+    const FLOW_CHAT_STEP_KEYS = ["wake", "claw", "tts", "audio"];
+    const FLOW_CHAT_STEP_LABELS = {
+      claw: "Agent 执行",
+      tts: "TTS 生成语音",
+      audio: "语音生成完成",
+    };
+    const api = createApiClient(() => state.authToken);
+    const uiMode = createUiModeController({
+      bodyEl: document.body,
+      modeToggleEl: debugModeToggleEl,
+      modeBadgeEl: uiModeBadgeEl,
+      densitySelectEl: uiDensitySelectEl,
+    });
 
     function qsSession() {
       const url = new URL(window.location.href);
@@ -169,10 +210,109 @@
       url.searchParams.set("session", session);
       history.replaceState({}, "", url.toString());
       sessionStore.setItem("openclaw-webchat-session", session);
+      renderSessionList();
     }
 
     function makeSession() {
       return `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    }
+
+    function sessionTitleFromId(session) {
+      return String(session || "未命名会话").replace(/^web-/, "会话 ");
+    }
+
+    function clearSessionLocalArtifacts(session) {
+      try {
+        window.localStorage.removeItem(`openclaw-webchat-traces:${session}`);
+      } catch {
+        // Ignore storage failures; server-side history deletion is the source of truth.
+      }
+    }
+
+    function voiceRecordsForCurrentSession() {
+      return loadTraceRecords()
+        .filter((item) => item.userAudioUrl || item.ttsAudioUrl || item.assistantReply)
+        .map((item) => ({
+          ...item,
+          userAudioUrl: item.userAudioUrl ? withTokenUrl(item.userAudioUrl) : "",
+          ttsAudioUrl: item.ttsAudioUrl ? withTokenUrl(item.ttsAudioUrl) : "/api/default-audio",
+        }));
+    }
+
+    function getSessionContextMenu() {
+      let menu = document.querySelector(".session-context-menu");
+      if (menu) return menu;
+      menu = document.createElement("div");
+      menu.className = "session-context-menu hidden";
+      menu.innerHTML = '<button type="button" data-action="delete">删除会话</button>';
+      document.body.appendChild(menu);
+      return menu;
+    }
+
+    function hideSessionContextMenu() {
+      const menu = document.querySelector(".session-context-menu");
+      if (!menu) return;
+      menu.classList.add("hidden");
+      menu.removeAttribute("data-session");
+    }
+
+    function showSessionContextMenu(event, item) {
+      event.preventDefault();
+      const menu = getSessionContextMenu();
+      const title = item.title || sessionTitleFromId(item.id);
+      menu.dataset.session = item.id;
+      const btn = menu.querySelector("[data-action='delete']");
+      if (btn) btn.textContent = `删除「${title}」`;
+      menu.classList.remove("hidden");
+      const rect = menu.getBoundingClientRect();
+      const left = Math.min(event.clientX, window.innerWidth - rect.width - 12);
+      const top = Math.min(event.clientY, window.innerHeight - rect.height - 12);
+      menu.style.left = `${Math.max(8, left)}px`;
+      menu.style.top = `${Math.max(8, top)}px`;
+    }
+
+    function renderSessionList(items = state.sessions) {
+      if (!sessionListEl) return;
+      const sessions = Array.isArray(items) ? [...items] : [];
+      if (state.session && !sessions.some((item) => item.id === state.session)) {
+        sessions.unshift({
+          id: state.session,
+          title: sessionTitleFromId(state.session),
+          preview: "当前会话",
+          messageCount: 0,
+          updatedAt: Date.now(),
+        });
+      }
+      state.sessions = sessions;
+      sessionListEl.innerHTML = "";
+      if (!sessions.length) {
+        const empty = document.createElement("div");
+        empty.className = "session-list__empty";
+        empty.textContent = "暂无历史会话";
+        sessionListEl.appendChild(empty);
+        return;
+      }
+      sessions.forEach((item) => {
+        const btn = document.createElement("button");
+        btn.className = "session-item";
+        btn.type = "button";
+        btn.classList.toggle("is-active", item.id === state.session);
+        const title = document.createElement("div");
+        title.className = "session-item__title";
+        title.textContent = item.title || sessionTitleFromId(item.id);
+        const meta = document.createElement("div");
+        meta.className = "session-item__meta";
+        const count = Number(item.messageCount || 0);
+        const time = item.updatedAt ? fmtTime(item.updatedAt) : "新会话";
+        meta.textContent = `${count} 条 · ${time}`;
+        const preview = document.createElement("div");
+        preview.className = "session-item__preview";
+        preview.textContent = item.preview || item.id || "";
+        btn.append(title, meta, preview);
+        btn.addEventListener("click", () => void switchSession(item.id));
+        btn.addEventListener("contextmenu", (event) => showSessionContextMenu(event, item));
+        sessionListEl.appendChild(btn);
+      });
     }
 
     function deriveRobotMode() {
@@ -181,7 +321,7 @@
       if (state.wakeEnabled && state.wakeListening) return { key: "idle", label: "待唤醒", detail: `正在等待唤醒词：${state.wakePhrase}` };
       if (state.stepState.upload?.status === "active") return { key: "uploading", label: "上传中", detail: "正在把浏览器原始录音送到服务器。" };
       if (state.stepState.transcribe?.status === "active") return { key: "transcribing", label: "转写中", detail: "服务器正在把音频变成文本。" };
-      if (state.stepState.claw?.status === "active") return { key: "thinking", label: "思考中", detail: "OpenClaw 正在组织回复内容。" };
+      if (state.stepState.claw?.status === "active") return { key: "thinking", label: "思考中", detail: "语音智能体正在组织回复内容。" };
       if (state.stepState.tts?.status === "active") return { key: "speaking", label: "准备开口", detail: "正在把回复转换成语音。" };
       if (state.lastTts?.url) return { key: "speaking", label: "可以播放", detail: "回复语音已经生成，可以直接播放。" };
       if (state.pendingTranscript) return { key: "heard", label: "我听到了", detail: "转写已经完成，确认文本后就可以发送。" };
@@ -194,10 +334,8 @@
       sendBtn.disabled = blocked;
       uploadBtn.disabled = blocked;
       reloadBtn.disabled = blocked;
-      speakerEnrollBtn.disabled = blocked || state.speakerEnrollRecording;
-      speakerRefreshBtn.disabled = blocked || state.speakerEnrollRecording;
-      speakerSwitchBtn.disabled = blocked || state.speakerEnrollRecording;
-      speakerMatchModeSelectEl.disabled = blocked || state.speakerEnrollRecording;
+      if (sessionSidebarClearBtn) sessionSidebarClearBtn.disabled = blocked;
+      if (sessionSidebarNewBtn) sessionSidebarNewBtn.disabled = blocked;
       statusEl.textContent = text;
     }
 
@@ -208,47 +346,304 @@
       return url.toString();
     }
 
-    function isFastOrigin() {
-      return window.location.port === "18890" || window.location.port === "18444";
+    function traceStorageKey(session = state.session) {
+      return `openclaw-webchat-traces:${session || "default"}`;
     }
 
-    function buildFastModeUrl() {
-      const current = new URL(window.location.href);
-      const next = new URL(current.href);
-      next.protocol = current.protocol === "https:" ? "https:" : "http:";
-      next.port = current.protocol === "https:" ? "18444" : "18890";
-      if (state.session) next.searchParams.set("session", state.session);
-      const token = state.authToken || tokenInputEl.value.trim();
-      if (token) next.searchParams.set("token", token);
-      return next.toString();
-    }
-
-    function buildStandardModeUrl() {
-      const current = new URL(window.location.href);
-      const next = new URL(current.href);
-      next.protocol = current.protocol === "https:" ? "https:" : "http:";
-      next.port = current.protocol === "https:" ? "18443" : "18889";
-      if (state.session) next.searchParams.set("session", state.session);
-      const token = state.authToken || tokenInputEl.value.trim();
-      if (token) next.searchParams.set("token", token);
-      return next.toString();
-    }
-
-    function updateFastModeUi() {
-      if (!fastModeBtnEl || !fastModeStatusEl) return;
-      if (isFastOrigin()) {
-        fastModeStatusEl.textContent = "轻量模式";
-        fastModeBtnEl.textContent = "回到标准模式";
-        fastModeBtnEl.title = "切回完整 OpenClaw agent 编排链路";
-      } else {
-        fastModeStatusEl.textContent = "标准模式";
-        fastModeBtnEl.textContent = "进入轻量模式";
-        fastModeBtnEl.title = "切到直连本地 vLLM 的低延迟链路";
+    function loadTraceRecords() {
+      try {
+        const raw = localStorage.getItem(traceStorageKey());
+        const items = JSON.parse(raw || "[]");
+        return Array.isArray(items) ? items : [];
+      } catch {
+        return [];
       }
     }
 
-    function switchFastMode() {
-      window.location.href = isFastOrigin() ? buildStandardModeUrl() : buildFastModeUrl();
+    function saveTraceRecords(items) {
+      localStorage.setItem(traceStorageKey(), JSON.stringify(items.slice(0, 80)));
+    }
+
+    function upsertTraceRecord(requestId, patch = {}) {
+      if (!requestId) return;
+      const now = Date.now();
+      const items = loadTraceRecords();
+      const index = items.findIndex((item) => item.requestId === requestId);
+      const base = index >= 0 ? items[index] : {
+        requestId,
+        session: state.session,
+        createdAt: now,
+        status: "进行中",
+      };
+      const next = { ...base, ...patch, updatedAt: now, session: state.session };
+      if (index >= 0) items.splice(index, 1);
+      items.unshift(next);
+      saveTraceRecords(items);
+      if (traceHistoryModalEl && !traceHistoryModalEl.classList.contains("hidden")) renderTraceHistory();
+    }
+
+    function appendTraceTextSection(card, label, text) {
+      if (!text) return;
+      const section = document.createElement("div");
+      section.className = "trace-card__section";
+      const title = document.createElement("div");
+      title.className = "trace-card__label";
+      title.textContent = label;
+      const body = document.createElement("div");
+      body.className = "trace-card__text";
+      body.textContent = text;
+      section.append(title, body);
+      card.appendChild(section);
+    }
+
+    function appendTraceAudioSection(card, label, url) {
+      if (!url) return;
+      const section = document.createElement("div");
+      section.className = "trace-card__section";
+      const title = document.createElement("div");
+      title.className = "trace-card__label";
+      title.textContent = label;
+      const audio = document.createElement("audio");
+      audio.controls = true;
+      audio.preload = "metadata";
+      audio.src = withTokenUrl(url);
+      section.append(title, audio);
+      card.appendChild(section);
+    }
+
+    function renderTraceHistory() {
+      if (!traceHistoryListEl) return;
+      const items = loadTraceRecords();
+      traceHistoryListEl.innerHTML = "";
+      if (traceHistorySubtitleEl) traceHistorySubtitleEl.textContent = `当前会话：${state.session || "未命名"}，共 ${items.length} 条`;
+      if (!items.length) {
+        const empty = document.createElement("div");
+        empty.className = "trace-history-empty";
+        empty.textContent = "还没有可回看的记录。发送一次对话或完成一次语音转写后，这里会自动生成留痕。";
+        traceHistoryListEl.appendChild(empty);
+        return;
+      }
+      items.forEach((item, index) => {
+        const card = document.createElement("article");
+        card.className = "trace-card";
+
+        const head = document.createElement("div");
+        head.className = "trace-card__head";
+        const headText = document.createElement("div");
+        const title = document.createElement("div");
+        title.className = "trace-card__title";
+        title.textContent = `第 ${items.length - index} 轮语音任务`;
+        const meta = document.createElement("div");
+        meta.className = "trace-card__meta";
+        meta.textContent = `${fmtTime(item.createdAt || item.updatedAt || Date.now())} · requestId=${item.requestId || ""}`;
+        headText.append(title, meta);
+        const status = document.createElement("div");
+        status.className = "trace-card__status";
+        status.textContent = item.status || "已记录";
+        head.append(headText, status);
+        card.appendChild(head);
+
+        appendTraceAudioSection(card, "用户原始录音", item.userAudioUrl);
+        appendTraceTextSection(card, "ASR 转写文本", item.transcript);
+        appendTraceTextSection(card, "用户发送文本", item.userText);
+        appendTraceTextSection(card, "Agent 回复文本", item.assistantReply);
+        appendTraceAudioSection(card, "回复语音", item.ttsAudioUrl);
+
+        traceHistoryListEl.appendChild(card);
+      });
+    }
+
+    function openTraceHistoryModal() {
+      if (!traceHistoryModalEl) return;
+      renderTraceHistory();
+      traceHistoryModalEl.classList.remove("hidden");
+    }
+
+    function closeTraceHistoryModal() {
+      if (!traceHistoryModalEl) return;
+      traceHistoryModalEl.classList.add("hidden");
+    }
+
+    function clearTraceHistory() {
+      if (!state.session) return;
+      localStorage.removeItem(traceStorageKey());
+      renderTraceHistory();
+    }
+
+    function applyVoiceInputMode(mode) {
+      const next = mode === "stream" ? "stream" : "ptt";
+      state.voiceInputMode = next;
+      localStorage.setItem("openclaw-webchat-voice-input-mode", next);
+      if (!voiceInputModeEl) return;
+      voiceInputModeEl.querySelectorAll("[data-voice-input-mode]").forEach((btn) => {
+        const active = btn.dataset.voiceInputMode === next;
+        btn.classList.toggle("is-active", active);
+        btn.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+      if (recordBtn) recordBtn.textContent = state.recording ? "停止录音" : (next === "stream" ? "开始连续语音" : "按住说话");
+    }
+
+    const DEBUG_COMPONENTS = ["ASR", "Agent", "TTS", "唤醒词", "Web"];
+
+    function debugComponent(item = {}) {
+      const event = String(item.event || "");
+      const path = String(item.path || "");
+      const engine = String(item.engine || "");
+      if (event.includes("transcribe") || path.includes("/api/transcribe")) return "ASR";
+      if (event.includes("chat") || path.includes("/api/chat")) return "Agent";
+      if (event.includes("tts") || path.includes("/api/tts")) return "TTS";
+      if (event.includes("wake") || path.includes("/api/wake") || engine.includes("wake")) return "唤醒词";
+      return "Web";
+    }
+
+    function debugSeverity(item = {}) {
+      const event = String(item.event || "");
+      const error = String(item.error || item.detail || "");
+      if (event.includes("timeout")) return "critical";
+      if (event.includes("error") || error) return "critical";
+      if (event === "wake_response" && item.matched === false) return "warning";
+      if (event.includes("request")) return "info";
+      return "ok";
+    }
+
+    function debugEventLabel(item = {}) {
+      const event = String(item.event || "unknown");
+      const labels = {
+        chat_request: "Agent 请求",
+        chat_response: "Agent 回复完成",
+        chat_response_test: "Agent 回复完成",
+        transcribe_request: "ASR 转写请求",
+        transcribe_response: "ASR 转写完成",
+        transcribe_response_test: "ASR 转写完成",
+        wake_request: "唤醒词检测请求",
+        wake_response: "唤醒词检测完成",
+        wake_response_test: "唤醒词检测完成",
+        tts_request: "TTS 合成请求",
+        tts_response: "TTS 合成完成",
+        tts_response_test: "TTS 合成完成",
+        system_status_test: "演示链路健康",
+        request_timeout: "请求超时",
+        request_error: "请求异常",
+      };
+      return labels[event] || event;
+    }
+
+    function debugAdvice(item = {}) {
+      const component = debugComponent(item);
+      const event = String(item.event || "");
+      const error = String(item.error || item.detail || "");
+      if (event.includes("timeout")) return "建议检查本地服务是否卡住，稍后重试或重启对应服务。";
+      if (component === "ASR") return "建议检查麦克风权限、音频是否为空，以及 faster-whisper 服务是否启动。";
+      if (component === "Agent") return "建议检查语音智能体、vLLM 或本地模型服务是否可用。";
+      if (component === "TTS") return "建议检查 TTS 模式、CosyVoice/edge-tts 依赖和音频输出目录。";
+      if (component === "唤醒词") return "建议确认唤醒词、录音输入和唤醒检测服务状态。";
+      if (error) return "建议根据原始日志中的 path、requestId 和 error 定位。";
+      return "当前事件可作为流程追踪记录。";
+    }
+
+    function renderDebugTerminal(items = []) {
+      const sorted = [...items].sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0));
+      if (debugTerminalSubtitleEl) {
+        debugTerminalSubtitleEl.textContent = `最近 ${sorted.length} 条事件 · ${state.session || "未命名会话"}`;
+      }
+
+      if (debugHealthGridEl) {
+        debugHealthGridEl.innerHTML = "";
+        DEBUG_COMPONENTS.forEach((name) => {
+          const latest = sorted.find((item) => debugComponent(item) === name);
+          const severity = latest ? debugSeverity(latest) : "unknown";
+          const card = document.createElement("div");
+          card.className = `debug-health-card debug-health-card--${severity}`;
+          const title = document.createElement("div");
+          title.className = "debug-health-card__title";
+          title.textContent = name;
+          const status = document.createElement("div");
+          status.className = "debug-health-card__status";
+          status.textContent = severity === "critical" ? "异常" : severity === "warning" ? "告警" : severity === "unknown" ? "暂无记录" : "正常";
+          const detail = document.createElement("div");
+          detail.className = "debug-health-card__detail";
+          detail.textContent = latest ? `${debugEventLabel(latest)} · ${fmtTime(latest.ts)}` : "等待事件";
+          card.append(title, status, detail);
+          debugHealthGridEl.appendChild(card);
+        });
+      }
+
+      const alerts = sorted.filter((item) => ["critical", "warning"].includes(debugSeverity(item))).slice(0, 8);
+      if (debugAlertListEl) {
+        debugAlertListEl.innerHTML = "";
+        if (!alerts.length) {
+          const empty = document.createElement("div");
+          empty.className = "debug-alert-empty";
+          empty.textContent = "暂无异常告警。";
+          debugAlertListEl.appendChild(empty);
+        } else {
+          alerts.forEach((item) => {
+            const severity = debugSeverity(item);
+            const row = document.createElement("div");
+            row.className = `debug-alert debug-alert--${severity}`;
+            const head = document.createElement("div");
+            head.className = "debug-alert__head";
+            head.textContent = `${fmtTime(item.ts)} · ${debugComponent(item)} · ${debugEventLabel(item)}`;
+            const reason = document.createElement("div");
+            reason.className = "debug-alert__reason";
+            reason.textContent = String(item.error || item.detail || (item.matched === false ? "未命中唤醒词" : "流程告警"));
+            const advice = document.createElement("div");
+            advice.className = "debug-alert__advice";
+            advice.textContent = debugAdvice(item);
+            row.append(head, reason, advice);
+            debugAlertListEl.appendChild(row);
+          });
+        }
+      }
+
+      if (debugRawLogEl) {
+        debugRawLogEl.innerHTML = "";
+        if (!sorted.length) {
+          const empty = document.createElement("div");
+          empty.className = "debug-alert-empty";
+          empty.textContent = "暂无日志。";
+          debugRawLogEl.appendChild(empty);
+        } else {
+          sorted.slice(0, 30).forEach((item) => {
+            const row = document.createElement("details");
+            row.className = "debug-log-item";
+            const summary = document.createElement("summary");
+            summary.textContent = `${fmtTime(item.ts)} · ${debugComponent(item)} · ${debugEventLabel(item)}`;
+            const pre = document.createElement("pre");
+            pre.textContent = JSON.stringify(item, null, 2);
+            row.append(summary, pre);
+            debugRawLogEl.appendChild(row);
+          });
+        }
+      }
+    }
+
+    async function refreshDebugTerminal() {
+      if (!debugTerminalModalEl) return;
+      if (debugTerminalSubtitleEl) debugTerminalSubtitleEl.textContent = "正在加载最近日志...";
+      try {
+        const data = await api("/api/debug/last");
+        const items = Array.isArray(data.items) ? data.items : [];
+        renderDebugTerminal(items);
+      } catch (err) {
+        renderDebugTerminal([{
+          ts: Date.now(),
+          event: "request_error",
+          path: "/api/debug/last",
+          error: err.message,
+        }]);
+      }
+    }
+
+    function openDebugTerminalModal() {
+      if (!debugTerminalModalEl) return;
+      debugTerminalModalEl.classList.remove("hidden");
+      void refreshDebugTerminal();
+    }
+
+    function closeDebugTerminalModal() {
+      if (!debugTerminalModalEl) return;
+      debugTerminalModalEl.classList.add("hidden");
     }
 
     function updateAuthUi() {
@@ -261,225 +656,202 @@
       uploadBtn.disabled = blocked;
       reloadBtn.disabled = blocked;
       newSessionBtn.disabled = !state.authenticated;
+      if (sessionSidebarNewBtn) sessionSidebarNewBtn.disabled = !state.authenticated;
+      if (sessionSidebarClearBtn) sessionSidebarClearBtn.disabled = !state.authenticated;
       recordBtn.disabled = !state.authenticated;
-      speakerEnrollBtn.disabled = !state.authenticated || state.busy || state.speakerEnrollRecording;
-      speakerRefreshBtn.disabled = !state.authenticated || state.busy || state.speakerEnrollRecording;
-      speakerSwitchBtn.disabled = !state.authenticated || state.busy || state.speakerEnrollRecording;
-      speakerMatchModeSelectEl.disabled = !state.authenticated || state.busy || state.speakerEnrollRecording;
     }
 
     function renderInputLevel() {
-      const pct = Math.max(0, Math.min(100, Math.round(state.inputLevel * 100)));
-      inputLevelFillEl.style.width = `${pct}%`;
-      inputLevelTextEl.textContent = `${pct}%`;
-    }
+      const rawPct = Math.max(0, Math.min(100, Math.round(state.inputLevel * 100)));
+      const pct = state.recording ? rawPct : 0;
+      if (inputLevelFillEl) inputLevelFillEl.style.width = `${pct}%`;
+      if (inputLevelTextEl) inputLevelTextEl.textContent = `${pct}%`;
 
-    function formatSpeakerScore(score) {
-      if (score === null || score === undefined || score === "") return "-";
-      const value = Number(score);
-      return Number.isFinite(value) ? value.toFixed(2) : "-";
-    }
+      if (visualizerCtx && visualizerCanvas && state.analyser && state.recording) {
+        const width = visualizerCanvas.width;
+        const height = visualizerCanvas.height;
+        const bufferLength = state.analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        state.analyser.getByteFrequencyData(dataArray);
 
-    function updateSpeakerUi() {
-      const status = state.speakerStatus || {};
-      const enabledText = status.enabled ? "已开启" : "已关闭";
-      const speakerId = status.speaker_id || state.currentSpeakerId || "owner";
-      const matchModeText = state.speakerMatchMode === "current" ? "仅当前身份" : "所有已注册身份";
-      const samples = Number.isFinite(Number(status.num_samples)) ? Number(status.num_samples) : 0;
-      const profiles = Array.isArray(status.profiles) ? status.profiles : [];
-      const registeredCount = profiles.filter((profile) => profile.has_profile).length;
-      if (speakerSelectEl && speakerIdInputEl) {
-        const selectedExists = profiles.some((profile) => profile.speaker_id === speakerId);
-        speakerSelectEl.innerHTML = "";
-        const selectedOption = document.createElement("option");
-        selectedOption.value = speakerId;
-        selectedOption.textContent = `${speakerId}${selectedExists ? "" : " (new)"}`;
-        speakerSelectEl.appendChild(selectedOption);
-        profiles.forEach((profile) => {
-          if (!profile.speaker_id || profile.speaker_id === speakerId) return;
-          const option = document.createElement("option");
-          option.value = profile.speaker_id;
-          option.textContent = `${profile.speaker_id} (${profile.num_samples || 0})`;
-          speakerSelectEl.appendChild(option);
-        });
-        speakerSelectEl.value = speakerId;
-        speakerIdInputEl.value = speakerId;
-      }
-      const result = state.lastSpeakerResult || (status.has_profile ? "-" : "未注册");
-      const reason = state.lastSpeakerReason ? `（${state.lastSpeakerReason}）` : "";
-      speakerStatusEl.innerHTML = "";
-      [
-        `声纹验证：${enabledText}`,
-        `当前身份：${speakerId}`,
-        `唤醒范围：${matchModeText}`,
-        `已注册身份数：${registeredCount}`,
-        `注册样本数：${samples}`,
-        `最近匹配身份：${state.lastWakeProbe?.speakerId || "-"}`,
-        `最近验证分数：${formatSpeakerScore(state.lastSpeakerScore)}`,
-        `最近验证结果：${result}${reason}`,
-        `backend: ${status.backend || state.lastWakeProbe?.speakerBackend || "-"}`,
-      ].forEach((text) => {
-        const item = document.createElement("span");
-        item.textContent = text;
-        speakerStatusEl.appendChild(item);
-      });
-    }
+        visualizerCtx.clearRect(0, 0, width, height);
 
-    function renderSpeakerEnrollModal() {
-      speakerEnrollModalEl.classList.toggle("hidden", !state.speakerEnrollOpen);
-      speakerEnrollPhraseEl.textContent = state.wakePhrase || "你好";
-      const done = state.speakerEnrollSamples.length;
-      const total = state.speakerEnrollTargetSamples;
-      speakerEnrollProgressEl.textContent = `第 ${Math.min(done + 1, total)} / ${total} 遍，已完成 ${done} 遍`;
-      const pct = Math.max(0, Math.min(100, Math.round(state.speakerEnrollLevel * 100)));
-      speakerEnrollLevelFillEl.style.width = `${pct}%`;
-      speakerEnrollLevelTextEl.textContent = `${pct}%`;
-      speakerEnrollRecordBtn.disabled = state.speakerEnrollRecording || done >= total;
-      speakerEnrollSubmitBtn.disabled = state.speakerEnrollRecording || done < total;
-      speakerEnrollCloseBtn.disabled = state.speakerEnrollRecording;
-      speakerEnrollCancelBtn.disabled = state.speakerEnrollRecording;
-      if (done >= total) {
-        speakerEnrollHintEl.textContent = "已完成采样，点击“保存声纹”后才会写入身份样本。";
-      } else if (!state.speakerEnrollRecording) {
-        speakerEnrollHintEl.textContent = "点击“开始录本遍”，然后清楚说出上方唤醒词。";
+        const numBars = 64; 
+        const barWidth = (width / numBars) - 0.5;
+        const step = Math.floor(bufferLength / numBars);
+
+        let x = 0;
+        visualizerCtx.fillStyle = 'rgba(61, 217, 179, 0.85)';
+        for (let i = 0; i < numBars; i++) {
+          const val = dataArray[i * step];
+          const barHeight = (val / 255) * height * 0.9;
+          visualizerCtx.fillRect(x, height - Math.max(1, barHeight), barWidth, Math.max(1, barHeight));
+          x += barWidth + 0.5;
+        }
+      } else if (visualizerCtx && visualizerCanvas) {
+        visualizerCtx.clearRect(0, 0, visualizerCanvas.width, visualizerCanvas.height);
+        visualizerCtx.fillStyle = 'rgba(61, 217, 179, 0.15)';
+        visualizerCtx.fillRect(0, visualizerCanvas.height / 2, visualizerCanvas.width, 1);
       }
     }
 
-    function openSpeakerEnrollModal() {
-      if (!state.authenticated || state.speakerEnrollRecording) return;
-      state.speakerEnrollOpen = true;
-      state.speakerEnrollSamples = [];
-      state.speakerEnrollLevel = 0;
-      renderSpeakerEnrollModal();
+    function containsWakePhrase(text) {
+      const target = normalizeWakeText(state.wakePhrase || "你好");
+      const normalized = normalizeWakeText(text || "");
+      if (!target) return true;
+      return normalized.includes(target);
     }
 
-    function closeSpeakerEnrollModal() {
-      if (state.speakerEnrollRecording) return;
-      state.speakerEnrollOpen = false;
-      state.speakerEnrollSamples = [];
-      state.speakerEnrollLevel = 0;
-      renderSpeakerEnrollModal();
+    function refreshSendButtonText() {
+      if (!sendBtn) return;
+      sendBtn.textContent = "发送";
     }
 
-    async function loadSpeakerStatus() {
-      if (!state.authenticated) {
-        updateSpeakerUi();
-        return;
+    function updateSpeakerCard(status = "idle", name = "等待识别", detail = "声纹待核验") {
+      if (!speakerCardEl) return;
+      speakerCardEl.classList.remove("speaker-card--active", "speaker-card--verified", "speaker-card--error");
+      if (status === "active") speakerCardEl.classList.add("speaker-card--active");
+      if (status === "verified") speakerCardEl.classList.add("speaker-card--verified");
+      if (status === "error") speakerCardEl.classList.add("speaker-card--error");
+      if (speakerNameEl) speakerNameEl.textContent = name;
+      if (speakerStatusEl) speakerStatusEl.textContent = detail;
+    }
+
+    function updateQuickRepliesVisibility() {
+      if (!quickRepliesPanelEl) return;
+      const transcriptVisible = !!(transcriptReviewEl && !transcriptReviewEl.classList.contains("hidden"));
+      const recordVisible = !!(recordReviewEl && !recordReviewEl.classList.contains("hidden"));
+      quickRepliesPanelEl.classList.toggle("hidden", transcriptVisible || recordVisible);
+    }
+
+    function updateComposerReviewMode() {
+      if (!composerEl) return;
+      const transcriptVisible = !!(transcriptReviewEl && !transcriptReviewEl.classList.contains("hidden"));
+      const recordVisible = !!(recordReviewEl && !recordReviewEl.classList.contains("hidden"));
+      composerEl.classList.toggle("is-review-mode", transcriptVisible || recordVisible);
+      updateQuickRepliesVisibility();
+    }
+
+    function showTranscriptReview(note = "可在输入框中修改后再确认发送。", text = "") {
+      if (!transcriptReviewEl) return;
+      if (transcriptReviewHintEl) transcriptReviewHintEl.textContent = note;
+      if (transcriptReviewEditorEl) {
+        transcriptReviewEditorEl.value = String(text || "");
+        transcriptReviewEditorEl.focus();
       }
-      try {
-        const data = await api(`/api/speaker/status?speaker_id=${encodeURIComponent(state.currentSpeakerId || "owner")}`);
-        state.speakerStatus = data;
-        state.currentSpeakerId = data.speaker_id || state.currentSpeakerId || "owner";
-        localStorage.setItem("openclaw-webchat-speaker-id", state.currentSpeakerId);
-        if (!data.has_profile && !state.lastSpeakerResult) state.lastSpeakerResult = "未注册";
-        updateSpeakerUi();
-      } catch (err) {
-        state.lastSpeakerResult = "状态获取失败";
-        state.lastSpeakerReason = err.message;
-        updateSpeakerUi();
+      draftEl.classList.add("hidden");
+      document.body.classList.add("transcript-review-active");
+      transcriptReviewEl.classList.remove("hidden");
+      updateComposerReviewMode();
+    }
+
+    function hideTranscriptReview({ clearPending = false, clearDraft = false } = {}) {
+      if (transcriptReviewEl) transcriptReviewEl.classList.add("hidden");
+      draftEl.classList.remove("hidden");
+      document.body.classList.remove("transcript-review-active");
+      if (transcriptReviewEditorEl) {
+        transcriptReviewEditorEl.value = "";
+        transcriptReviewEditorEl.style.height = "";
       }
+      if (clearPending) state.pendingTranscript = "";
+      if (clearDraft) draftEl.value = "";
+      updateComposerReviewMode();
+      refreshSendButtonText();
     }
 
-    async function switchSpeakerIdentity(nextId) {
-      const cleaned = String(nextId || "").trim() || "owner";
-      state.currentSpeakerId = cleaned;
-      localStorage.setItem("openclaw-webchat-speaker-id", cleaned);
-      state.lastSpeakerScore = null;
-      state.lastSpeakerResult = "";
-      state.lastSpeakerReason = "";
-      await loadSpeakerStatus();
-      logProcess("切换声纹身份", `speaker=${cleaned}`);
+    async function confirmTranscriptAndSend() {
+      const text = String(transcriptReviewEditorEl?.value || "").trim();
+      if (!text || state.busy) return;
+      draftEl.value = text;
+      await sendMessage(text);
     }
 
-    function normalizeWakeText(text) {
-      return String(text || "")
-        .toLowerCase()
-        .replace(/[.,!?;:'"()\-_/\\，。！？；：、“”‘’\s]+/g, "");
+    function cancelTranscriptReview() {
+      if (state.currentRequestId) delete state.voiceMessages[state.currentRequestId];
+      state.currentRequestId = "";
+      hideTranscriptReview({ clearPending: true, clearDraft: true });
+      setStep("transcript", "idle", "转写结果已取消");
+      statusEl.textContent = "已取消本次转写结果。";
     }
 
-    function wakeLanguageCode() {
-      return /^[\x00-\x7F]+$/.test(state.wakePhrase) ? "en" : "zh";
-    }
-
-    function wakeWindowMs() {
-      return wakeLanguageCode() === "en" ? WAKE_WINDOW_MS_EN : WAKE_WINDOW_MS_ZH;
-    }
-
-    function wakeStepMs() {
-      return wakeLanguageCode() === "en" ? WAKE_STEP_MS_EN : WAKE_STEP_MS_ZH;
-    }
-
-    function base64Utf8(text) {
-      const bytes = new TextEncoder().encode(String(text || ""));
-      let binary = "";
-      for (const b of bytes) binary += String.fromCharCode(b);
-      return btoa(binary);
-    }
-
-    function floatTo16BitPCM(view, offset, input) {
-      for (let i = 0; i < input.length; i += 1, offset += 2) {
-        const s = Math.max(-1, Math.min(1, input[i]));
-        view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    function clearPendingRecord({ keepStatus = false } = {}) {
+      const pending = state.pendingRecord;
+      if (pending?.url) {
+        try { URL.revokeObjectURL(pending.url); } catch {}
       }
+      state.pendingRecord = null;
+      if (recordReviewAudioEl) {
+        recordReviewAudioEl.pause();
+        recordReviewAudioEl.removeAttribute("src");
+        recordReviewAudioEl.load();
+      }
+      if (recordReviewMetaEl) recordReviewMetaEl.textContent = "";
+      if (recordReviewEl) recordReviewEl.classList.add("hidden");
+      if (draftEl) draftEl.classList.remove("hidden");
+      updateComposerReviewMode();
+      if (!keepStatus) statusEl.textContent = "";
+      refreshSendButtonText();
     }
 
-    function encodeWavBlobFromFloat32(samples, sampleRate) {
-      const buffer = new ArrayBuffer(44 + samples.length * 2);
-      const view = new DataView(buffer);
-      const writeString = (offset, str) => {
-        for (let i = 0; i < str.length; i += 1) view.setUint8(offset + i, str.charCodeAt(i));
-      };
-      writeString(0, "RIFF");
-      view.setUint32(4, 36 + samples.length * 2, true);
-      writeString(8, "WAVE");
-      writeString(12, "fmt ");
-      view.setUint32(16, 16, true);
-      view.setUint16(20, 1, true);
-      view.setUint16(22, 1, true);
-      view.setUint32(24, sampleRate, true);
-      view.setUint32(28, sampleRate * 2, true);
-      view.setUint16(32, 2, true);
-      view.setUint16(34, 16, true);
-      writeString(36, "data");
-      view.setUint32(40, samples.length * 2, true);
-      floatTo16BitPCM(view, 44, samples);
-      return new Blob([buffer], { type: "audio/wav" });
+    function showPendingRecordReview() {
+      const pending = state.pendingRecord;
+      if (!pending || !recordReviewEl || !recordReviewAudioEl) return;
+      const kb = Math.max(1, Math.round((pending.bytes || 0) / 1024));
+      if (recordReviewMetaEl) recordReviewMetaEl.textContent = `${kb} KB / ${pending.mimeType || "audio/webm"}`;
+      recordReviewAudioEl.src = pending.url;
+      recordReviewAudioEl.load();
+      if (draftEl) draftEl.classList.add("hidden");
+      recordReviewEl.classList.remove("hidden");
+      updateComposerReviewMode();
     }
 
-    function copyLatestWakeWindow(sampleCount) {
+    async function confirmPendingRecordUpload() {
+      const pending = state.pendingRecord;
+      if (!pending || state.busy) return;
+      const { blob, filename, requestId, autoSendOverride } = pending;
+      clearPendingRecord({ keepStatus: true });
+      setStep("upload", "active", "用户已确认上传，准备发送到服务器");
+      setStep("transcribe", "active", "等待服务器转写");
+      statusEl.textContent = "正在上传并转写录音...";
+      await transcribeBlob(blob, filename, { requestId, autoSendOverride });
+    }
+
+    async function cancelPendingRecordUpload() {
+      if (!state.pendingRecord) return;
+      clearPendingRecord({ keepStatus: true });
+      setStep("record", "idle", "本轮录音已取消");
+      setStep("upload", "idle", "等待新的录音上传");
+      setStep("transcribe", "idle", "等待新的录音转写");
+      statusEl.textContent = "已取消本轮录音。";
+      if (state.wakeEnabled && state.authenticated && !state.recording) scheduleWakeResume(600);
+    }
+
+    function openAdvancedSettingsModal() {
+      if (!advancedSettingsModalEl) return;
+      advancedSettingsModalEl.classList.remove("hidden");
+    }
+
+    function closeAdvancedSettingsModal() {
+      if (!advancedSettingsModalEl) return;
+      advancedSettingsModalEl.classList.add("hidden");
+    }
+
+    function takeWakeChunk(sampleCount) {
       const out = new Float32Array(sampleCount);
-      let skip = Math.max(0, state.wakeChunkSamples - sampleCount);
       let offset = 0;
-      for (const chunk of state.wakeChunkBuffers) {
-        if (skip >= chunk.length) {
-          skip -= chunk.length;
-          continue;
-        }
-        const source = skip > 0 ? chunk.subarray(skip) : chunk;
-        const n = Math.min(sampleCount - offset, source.length);
-        out.set(source.subarray(0, n), offset);
-        offset += n;
-        skip = 0;
-        if (offset >= sampleCount) break;
-      }
-      return out;
-    }
-
-    function trimWakeBuffers(maxSamples) {
-      let drop = Math.max(0, state.wakeChunkSamples - maxSamples);
-      while (drop > 0 && state.wakeChunkBuffers.length) {
+      while (offset < sampleCount && state.wakeChunkBuffers.length) {
         const chunk = state.wakeChunkBuffers[0];
-        if (drop >= chunk.length) {
+        const n = Math.min(sampleCount - offset, chunk.length);
+        out.set(chunk.subarray(0, n), offset);
+        offset += n;
+        if (n === chunk.length) {
           state.wakeChunkBuffers.shift();
-          state.wakeChunkSamples -= chunk.length;
-          drop -= chunk.length;
         } else {
-          state.wakeChunkBuffers[0] = chunk.subarray(drop);
-          state.wakeChunkSamples -= drop;
-          drop = 0;
+          state.wakeChunkBuffers[0] = chunk.subarray(n);
         }
       }
-      state.wakeChunkSamples = Math.max(0, state.wakeChunkSamples);
+      state.wakeChunkSamples = Math.max(0, state.wakeChunkSamples - sampleCount);
+      return out;
     }
 
     function updateWakeUi(extra = "") {
@@ -545,7 +917,6 @@
       state.wakeSilentGain = null;
       state.wakeChunkBuffers = [];
       state.wakeChunkSamples = 0;
-      state.wakeSamplesSinceLastCheck = 0;
       if (!state.recording) {
         if (state.meterTimer) cancelAnimationFrame(state.meterTimer);
         state.meterTimer = null;
@@ -588,7 +959,6 @@
         startLevelMonitor(state.stream);
         state.wakeChunkBuffers = [];
         state.wakeChunkSamples = 0;
-        state.wakeSamplesSinceLastCheck = 0;
         state.wakeChunkSampleRate = state.monitorContext?.sampleRate || 16000;
         const processor = state.monitorContext.createScriptProcessor(4096, 1, 1);
         const silentGain = state.monitorContext.createGain();
@@ -604,7 +974,6 @@
           const chunk = new Float32Array(event.inputBuffer.getChannelData(0));
           state.wakeChunkBuffers.push(chunk);
           state.wakeChunkSamples += chunk.length;
-          state.wakeSamplesSinceLastCheck += chunk.length;
           void flushWakeChunkIfReady();
         };
         state.monitorSource.connect(processor);
@@ -621,11 +990,9 @@
       const reqId = makeId("wake");
       const headers = {
         "Content-Type": blob.type || "application/octet-stream",
-        "X-Filename": `wake-${Date.now()}.wav`,
-        "X-Wake-Language": wakeLanguageCode(),
+        "X-Filename": `wake-${Date.now()}.webm`,
+        "X-Wake-Language": wakeLanguageCode(state.wakePhrase),
         "X-Wake-Phrase-B64": base64Utf8(state.wakePhrase),
-        "X-Speaker-Id": state.currentSpeakerId || "owner",
-        "X-Speaker-Match-Mode": state.speakerMatchMode === "current" ? "current" : "all",
         "X-Client-Id": state.clientId,
         "X-Request-Id": reqId,
         "X-Session-Key": state.session,
@@ -635,214 +1002,22 @@
         headers,
         body: blob,
       });
-      state.lastSpeakerScore = data.speaker_score ?? state.lastSpeakerScore;
-      state.lastSpeakerResult = data.speaker_enabled
-        ? (data.speaker_matched ? "通过" : (data.speaker_reason === "speaker profile not enrolled" ? "未注册" : "未通过"))
-        : "已关闭";
-      state.lastSpeakerReason = data.speaker_reason || data.speaker_error || "";
-      if (data.speaker_id || data.speaker_match_mode) {
-        state.lastWakeProbe = {
-          ...(state.lastWakeProbe || {}),
-          speakerId: data.speaker_id || state.lastWakeProbe?.speakerId || "",
-          speakerMatchMode: data.speaker_match_mode || state.speakerMatchMode || "all",
-        };
-      }
-      updateSpeakerUi();
-      if (data.wake_matched && !data.speaker_matched) {
-        const hint = data.speaker_reason === "speaker profile not enrolled" ? "请先注册声纹" : "身份确认失败";
-        statusEl.textContent = `唤醒词命中，但${hint}`;
-        logProcess("唤醒词命中但身份确认失败", `${data.speaker_reason || ""}\nscore=${formatSpeakerScore(data.speaker_score)}\nrequestId=${reqId}`);
-        return null;
-      }
       if (data.matched) {
         logProcess("唤醒词分片命中", `${data.text || ""}\nrequestId=${reqId}`);
-        return data;
+        return data.text || "";
       }
-      return null;
-    }
-
-    async function recordSpeakerSample(durationMs = 2500) {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          deviceId: state.selectedDeviceId ? { exact: state.selectedDeviceId } : undefined,
-          channelCount: 1,
-          noiseSuppression: true,
-          echoCancellation: true,
-          autoGainControl: true,
-        },
-      });
-      const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
-      const context = new AudioContextCtor();
-      const sampleRate = context.sampleRate || 16000;
-      const source = context.createMediaStreamSource(stream);
-      const processor = context.createScriptProcessor(4096, 1, 1);
-      const silentGain = context.createGain();
-      silentGain.gain.value = 0;
-      const chunks = [];
-      processor.onaudioprocess = (event) => {
-        const chunk = new Float32Array(event.inputBuffer.getChannelData(0));
-        chunks.push(chunk);
-        let sum = 0;
-        for (let i = 0; i < chunk.length; i += 1) sum += chunk[i] * chunk[i];
-        state.speakerEnrollLevel = Math.min(1, Math.sqrt(sum / Math.max(1, chunk.length)) * 8);
-        renderSpeakerEnrollModal();
-      };
-      source.connect(processor);
-      processor.connect(silentGain);
-      silentGain.connect(context.destination);
-      await new Promise((resolve) => setTimeout(resolve, durationMs));
-      try { processor.disconnect(); } catch {}
-      try { source.disconnect(); } catch {}
-      try { silentGain.disconnect(); } catch {}
-      stream.getTracks().forEach((track) => track.stop());
-      try { await context.close(); } catch {}
-      const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-      const samples = new Float32Array(total);
-      let offset = 0;
-      for (const chunk of chunks) {
-        samples.set(chunk, offset);
-        offset += chunk.length;
-      }
-      return encodeWavBlobFromFloat32(samples, sampleRate);
-    }
-
-    async function enrollSpeakerLegacy() {
-      if (!state.authenticated || state.speakerEnrollRecording) return;
-      if (!navigator.mediaDevices?.getUserMedia) {
-        statusEl.textContent = "当前浏览器不支持录音。";
-        return;
-      }
-      state.speakerEnrollRecording = true;
-      updateAuthUi();
-      try {
-        await stopWakeListener();
-        statusEl.textContent = "正在注册声纹，请自然说话约 3 秒...";
-        logProcess("开始注册声纹", `clientId=${state.clientId}`);
-        const blob = await recordSpeakerSample(3000);
-        const data = await api("/api/speaker/enroll", {
-          method: "POST",
-          headers: {
-            "Content-Type": "audio/wav",
-            "X-Filename": `speaker-enroll-${Date.now()}.wav`,
-            "X-Speaker-Id": state.currentSpeakerId || "owner",
-            "X-Client-Id": state.clientId,
-            "X-Request-Id": makeId("speaker"),
-            "X-Session-Key": state.session,
-          },
-          body: blob,
-        });
-        state.lastSpeakerResult = "已注册";
-        state.lastSpeakerReason = "";
-        statusEl.textContent = `声纹注册成功，样本数：${data.num_samples || 0}`;
-        logProcess("声纹注册成功", `speaker=${data.speaker_id || state.currentSpeakerId || "owner"}\nnumSamples=${data.num_samples || 0}`);
-        await loadSpeakerStatus();
-      } catch (err) {
-        state.lastSpeakerResult = "注册失败";
-        state.lastSpeakerReason = err.message;
-        statusEl.textContent = `声纹注册失败：${err.message}`;
-        logProcess("声纹注册失败", err.message);
-        updateSpeakerUi();
-      } finally {
-        state.speakerEnrollRecording = false;
-        updateAuthUi();
-        if (state.wakeEnabled && state.authenticated && !state.recording) scheduleWakeResume(900);
-      }
-    }
-
-    async function recordSpeakerEnrollPass() {
-      if (!state.authenticated || state.speakerEnrollRecording) return;
-      if (!navigator.mediaDevices?.getUserMedia) {
-        statusEl.textContent = "当前浏览器不支持录音。";
-        return;
-      }
-      state.speakerEnrollRecording = true;
-      updateAuthUi();
-      renderSpeakerEnrollModal();
-      try {
-        await stopWakeListener();
-        const pass = state.speakerEnrollSamples.length + 1;
-        statusEl.textContent = `正在采集第 ${pass} 遍唤醒词...`;
-        speakerEnrollHintEl.textContent = `正在录第 ${pass} 遍，请说：${state.wakePhrase}`;
-        logProcess("开始采集声纹样本", `pass=${pass}\nwakePhrase=${state.wakePhrase}\nclientId=${state.clientId}`);
-        const blob = await recordSpeakerSample(2500);
-        state.speakerEnrollSamples.push(blob);
-        state.speakerEnrollLevel = 0;
-        statusEl.textContent = `第 ${pass} 遍已采集`;
-        renderSpeakerEnrollModal();
-      } catch (err) {
-        state.lastSpeakerResult = "注册失败";
-        state.lastSpeakerReason = err.message;
-        statusEl.textContent = `声纹采集失败：${err.message}`;
-        logProcess("声纹采集失败", err.message);
-        updateSpeakerUi();
-      } finally {
-        state.speakerEnrollRecording = false;
-        state.speakerEnrollLevel = 0;
-        updateAuthUi();
-        renderSpeakerEnrollModal();
-      }
-    }
-
-    async function enrollSpeaker() {
-      if (!state.authenticated || state.speakerEnrollRecording) return;
-      if (state.speakerEnrollSamples.length < state.speakerEnrollTargetSamples) {
-        openSpeakerEnrollModal();
-        return;
-      }
-      state.speakerEnrollRecording = true;
-      updateAuthUi();
-      renderSpeakerEnrollModal();
-      try {
-        statusEl.textContent = "正在保存声纹样本...";
-        let last = null;
-        for (let i = 0; i < state.speakerEnrollSamples.length; i += 1) {
-          last = await api("/api/speaker/enroll", {
-            method: "POST",
-            headers: {
-              "Content-Type": "audio/wav",
-              "X-Filename": `speaker-enroll-${Date.now()}-${i + 1}.wav`,
-              "X-Speaker-Id": state.currentSpeakerId || "owner",
-              "X-Client-Id": state.clientId,
-              "X-Request-Id": makeId("speaker"),
-              "X-Session-Key": state.session,
-            },
-            body: state.speakerEnrollSamples[i],
-          });
-        }
-        state.lastSpeakerResult = "已注册";
-        state.lastSpeakerReason = "";
-        statusEl.textContent = `声纹注册成功，新增 ${state.speakerEnrollSamples.length} 段样本`;
-        logProcess("声纹注册成功", `speaker=${last?.speaker_id || state.currentSpeakerId || "owner"}\nnumSamples=${last?.num_samples || 0}`);
-        closeSpeakerEnrollModal();
-        await loadSpeakerStatus();
-      } catch (err) {
-        state.lastSpeakerResult = "注册失败";
-        state.lastSpeakerReason = err.message;
-        statusEl.textContent = `声纹注册失败：${err.message}`;
-        logProcess("声纹注册失败", err.message);
-        updateSpeakerUi();
-      } finally {
-        state.speakerEnrollRecording = false;
-        updateAuthUi();
-        renderSpeakerEnrollModal();
-        if (state.wakeEnabled && state.authenticated && !state.recording) scheduleWakeResume(900);
-      }
+      return "";
     }
 
     async function flushWakeChunkIfReady() {
-      const windowSamples = Math.floor(state.wakeChunkSampleRate * (wakeWindowMs() / 1000));
-      const stepSamples = Math.floor(state.wakeChunkSampleRate * (wakeStepMs() / 1000));
-      if (state.wakePending || state.wakeChunkSamples < windowSamples) return;
-      if (state.wakeSamplesSinceLastCheck < stepSamples) return;
-      state.wakeSamplesSinceLastCheck = 0;
+      const minSamples = Math.floor(state.wakeChunkSampleRate * (wakeChunkMs(state.wakePhrase) / 1000));
+      if (state.wakePending || state.wakeChunkSamples < minSamples) return;
       state.wakePending = true;
       try {
-        const samples = copyLatestWakeWindow(windowSamples);
-        trimWakeBuffers(windowSamples);
+        const samples = takeWakeChunk(minSamples);
         const wavBlob = encodeWavBlobFromFloat32(samples, state.wakeChunkSampleRate);
-        const wakeResult = await checkWakeWord(wavBlob);
-        if (!wakeResult) return;
-        const chunkText = wakeResult.text || "";
+        const chunkText = await checkWakeWord(wavBlob);
+        if (!chunkText) return;
         const normalized = normalizeWakeText(chunkText);
         const target = normalizeWakeText(state.wakePhrase);
         if (!target || !normalized.includes(target)) return;
@@ -860,27 +1035,56 @@
       }
     }
 
+    function updateMicAvailabilityStatus() {
+      if (!micAvailableStatusEl) return;
+      micAvailableStatusEl.classList.remove("is-available", "is-unavailable", "is-unknown");
+      if (!state.wakeSupported) {
+        micAvailableStatusEl.textContent = "状态: 不可用";
+        micAvailableStatusEl.classList.add("is-unavailable");
+        return;
+      }
+      if (!state.micDevices.length) {
+        micAvailableStatusEl.textContent = "状态: 不可用";
+        micAvailableStatusEl.classList.add("is-unavailable");
+        return;
+      }
+      micAvailableStatusEl.textContent = "状态: 可用";
+      micAvailableStatusEl.classList.add("is-available");
+    }
+
     function renderMicDevices() {
       const current = state.selectedDeviceId || "";
-      micSelectEl.innerHTML = "";
+      if (micSelectEl) micSelectEl.innerHTML = "";
+      if (micQuickSelectEl) micQuickSelectEl.innerHTML = "";
       const devices = state.micDevices || [];
       if (!devices.length) {
         const opt = document.createElement("option");
         opt.value = "";
         opt.textContent = "默认麦克风";
-        micSelectEl.appendChild(opt);
-        micSelectEl.value = "";
+        if (micSelectEl) {
+          micSelectEl.appendChild(opt.cloneNode(true));
+          micSelectEl.value = "";
+        }
+        if (micQuickSelectEl) {
+          micQuickSelectEl.appendChild(opt.cloneNode(true));
+          micQuickSelectEl.value = "";
+        }
+        updateMicAvailabilityStatus();
         return;
       }
       for (const device of devices) {
         const opt = document.createElement("option");
         opt.value = device.deviceId || "";
-        opt.textContent = device.label || `麦克风 ${micSelectEl.options.length + 1}`;
-        micSelectEl.appendChild(opt);
+        opt.textContent = device.label || `麦克风 ${devices.indexOf(device) + 1}`;
+        if (micSelectEl) micSelectEl.appendChild(opt.cloneNode(true));
+        if (micQuickSelectEl) micQuickSelectEl.appendChild(opt.cloneNode(true));
       }
       const hasCurrent = devices.some((d) => (d.deviceId || "") === current);
-      micSelectEl.value = hasCurrent ? current : (devices[0].deviceId || "");
-      state.selectedDeviceId = micSelectEl.value;
+      const nextValue = hasCurrent ? current : (devices[0].deviceId || "");
+      if (micSelectEl) micSelectEl.value = nextValue;
+      if (micQuickSelectEl) micQuickSelectEl.value = nextValue;
+      state.selectedDeviceId = nextValue;
+      updateMicAvailabilityStatus();
     }
 
     async function refreshMicDevices() {
@@ -890,8 +1094,22 @@
         renderMicDevices();
         logProcess("刷新麦克风设备", `${state.micDevices.length} 个输入设备`);
       } catch (err) {
+        if (micAvailableStatusEl) {
+          micAvailableStatusEl.textContent = "状态: 不可用";
+          micAvailableStatusEl.classList.remove("is-available", "is-unknown");
+          micAvailableStatusEl.classList.add("is-unavailable");
+        }
         logProcess("刷新麦克风设备失败", String(err.message || err));
       }
+    }
+
+    function onMicSelected(value) {
+      state.selectedDeviceId = value || "";
+      sessionStore.setItem("openclaw-webchat-mic-device", state.selectedDeviceId);
+      if (micSelectEl && micSelectEl.value !== state.selectedDeviceId) micSelectEl.value = state.selectedDeviceId;
+      if (micQuickSelectEl && micQuickSelectEl.value !== state.selectedDeviceId) micQuickSelectEl.value = state.selectedDeviceId;
+      updateMicAvailabilityStatus();
+      logProcess("切换麦克风设备", state.selectedDeviceId || "default");
     }
 
     function startLevelMonitor(stream) {
@@ -939,91 +1157,146 @@
       tick();
     }
 
-    function fmtTime(ts) {
-      return new Date(ts).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"});
+    function getStepElapsedMs(step, status) {
+      if (status === "active") {
+        const startedAt = state.stepStartedAt[step] || 0;
+        return startedAt ? Math.max(0, Date.now() - startedAt) : 0;
+      }
+      return state.stepDurations[step] || 0;
+    }
+
+    function hasLivePipelineStep() {
+      if (state.recording) return true;
+      return PIPELINE_ORDER.some((step) => state.stepState[step]?.status === "active");
+    }
+
+    function ensurePipelineRenderTimer() {
+      const shouldRun = hasLivePipelineStep();
+      if (!shouldRun && state.pipelineRenderTimer) {
+        clearInterval(state.pipelineRenderTimer);
+        state.pipelineRenderTimer = null;
+        return;
+      }
+      if (shouldRun && !state.pipelineRenderTimer) {
+        state.pipelineRenderTimer = setInterval(() => {
+          if (!hasLivePipelineStep()) {
+            clearInterval(state.pipelineRenderTimer);
+            state.pipelineRenderTimer = null;
+            return;
+          }
+          renderPipeline();
+        }, 250);
+      }
     }
 
     function renderPipeline() {
-      const robotMode = deriveRobotMode();
-      robotCardEl.className = `robot-card robot-card--${robotMode.key}`;
-      robotModeLabelEl.textContent = robotMode.label;
-      robotModeDetailEl.textContent = robotMode.detail;
-      const blink = robotMode.key === "idle" || robotMode.key === "thinking";
-      robotEyeLeftEl.classList.toggle("robot-shell-figure__eye--blink", blink);
-      robotEyeRightEl.classList.toggle("robot-shell-figure__eye--blink", blink);
-      robotMouthFillEl.style.width = robotMode.key === "speaking" ? "72%" : robotMode.key === "listening" ? `${Math.max(18, Math.min(86, Math.round(state.inputLevel * 160)))}%` : robotMode.key === "thinking" ? "44%" : "26%";
-      pipelineStepsEl.innerHTML = "";
-      for (const key of PIPELINE_ORDER) {
-        const meta = state.stepState[key] || {status: "idle", detail: "等待"};
-        const div = document.createElement("div");
-        div.className = `robot-flow__item ${meta.status}`;
-        div.innerHTML = `<div class="robot-flow__dot"></div><div><div class="robot-flow__label">${PIPELINE_LABELS[key]}</div><div class="robot-flow__detail">${meta.detail || ""}</div></div>`;
-        pipelineStepsEl.appendChild(div);
-      }
-      if (state.pendingTranscript) {
-        robotUserBubbleEl.classList.remove("hidden");
-        robotUserBubbleTextEl.textContent = state.pendingTranscript;
-      } else {
-        robotUserBubbleEl.classList.add("hidden");
-        robotUserBubbleTextEl.textContent = "";
-      }
-      if (state.lastAssistantReply) {
-        robotAssistantBubbleEl.classList.remove("hidden");
-        robotAssistantBubbleTextEl.textContent = state.lastAssistantReply;
-      } else {
-        robotAssistantBubbleEl.classList.add("hidden");
-        robotAssistantBubbleTextEl.textContent = "";
-      }
-      processLogEl.innerHTML = "";
-      for (const entry of state.processEntries) {
-        const div = document.createElement("div");
-        div.className = "process-log__item";
-        div.innerHTML = `<div class="process-log__time">${fmtTime(entry.ts)}</div><div class="process-log__label">${entry.label}</div><div class="process-log__detail">${entry.detail || ""}</div>`;
-        processLogEl.appendChild(div);
-      }
-      if (state.localCapture && state.localCapture.url) {
-        captureProofEl.classList.remove("hidden");
-        captureProofMetaEl.textContent = `requestId=${state.localCapture.requestId}\nbytes=${state.localCapture.bytes}\nmimeType=${state.localCapture.mimeType}`;
-        captureProofAudioEl.src = state.localCapture.url;
-      } else {
-        captureProofEl.classList.add("hidden");
-        captureProofMetaEl.textContent = "";
-        captureProofAudioEl.removeAttribute("src");
-      }
-      if (state.lastUpload && state.lastUpload.url) {
-        uploadProofEl.classList.remove("hidden");
-        uploadProofMetaEl.textContent = `clientId=${state.lastUpload.clientId || state.clientId}\nrequestId=${state.lastUpload.requestId || state.currentRequestId}\nsession=${state.lastUpload.session || state.session}\nuploadId=${state.lastUpload.id}\nfilename=${state.lastUpload.filename}\nbytes=${state.lastUpload.bytes}\nsha256=${state.lastUpload.sha256}`;
-        uploadProofAudioEl.src = withTokenUrl(state.lastUpload.url);
-      } else {
-        uploadProofEl.classList.add("hidden");
-        uploadProofMetaEl.textContent = "";
-        uploadProofAudioEl.removeAttribute("src");
-      }
-      if (state.lastWakeProbe) {
-        wakeProofEl.classList.remove("hidden");
-        wakeProofMetaEl.textContent = `engine=${state.lastWakeProbe.engine || "unknown"}\nmatched=${state.lastWakeProbe.matched ? "yes" : "no"}\nwakeMatched=${state.lastWakeProbe.wakeMatched ? "yes" : "no"}\nspeakerMatched=${state.lastWakeProbe.speakerMatched ? "yes" : "no"}\nspeakerId=${state.lastWakeProbe.speakerId || "-"}\nspeakerMatchMode=${state.lastWakeProbe.speakerMatchMode || state.speakerMatchMode || "all"}\nspeakerScore=${formatSpeakerScore(state.lastWakeProbe.speakerScore)}\nspeakerThreshold=${state.lastWakeProbe.speakerThreshold ?? "-"}\nspeakerBackend=${state.lastWakeProbe.speakerBackend || "-"}\nspeakerModel=${state.lastWakeProbe.speakerModelId || "-"}\nspeakerReason=${state.lastWakeProbe.speakerReason || ""}\nspeakerError=${state.lastWakeProbe.speakerError || ""}\nphrase=${state.lastWakeProbe.wakePhrase || state.wakePhrase}\ntext=${state.lastWakeProbe.text || "[empty]"}\nrequestId=${state.lastWakeProbe.requestId || ""}\nbytes=${state.lastWakeProbe.bytes || ""}\nts=${state.lastWakeProbe.ts ? fmtTime(state.lastWakeProbe.ts) : ""}`;
-      } else {
-        wakeProofEl.classList.add("hidden");
-        wakeProofMetaEl.textContent = "";
-      }
-      if (state.lastTts && state.lastTts.url) {
-        ttsProofEl.classList.remove("hidden");
-        ttsProofMetaEl.textContent = `requestId=${state.lastTts.requestId}\nvoice=${state.lastTts.voice}\nprovider=${state.lastTts.provider}\nbytes=${state.lastTts.bytes}\nfilename=${state.lastTts.filename}`;
-        const nextTtsSrc = withTokenUrl(state.lastTts.url);
-        if (ttsProofAudioEl.src !== nextTtsSrc) {
-          ttsProofAudioEl.src = nextTtsSrc;
-        }
-      } else {
-        ttsProofEl.classList.add("hidden");
-        ttsProofMetaEl.textContent = "";
-        ttsProofAudioEl.removeAttribute("src");
-      }
+      ensurePipelineRenderTimer();
+      renderPipelineView({
+        state,
+        elements: {
+          robotCardEl,
+          robotModeLabelEl,
+          robotModeDetailEl,
+          robotEyeLeftEl,
+          robotEyeRightEl,
+          robotMouthFillEl,
+          pipelineStepsEl,
+          robotUserBubbleEl,
+          robotUserBubbleTextEl,
+          robotAssistantBubbleEl,
+          robotAssistantBubbleTextEl,
+          processLogEl,
+          captureProofEl,
+          captureProofMetaEl,
+          captureProofAudioEl,
+          uploadProofEl,
+          uploadProofMetaEl,
+          uploadProofAudioEl,
+          wakeProofEl,
+          wakeProofMetaEl,
+          ttsProofEl,
+          ttsProofMetaEl,
+          ttsProofAudioEl,
+        },
+        pipelineOrder: PIPELINE_ORDER,
+        pipelineLabels: PIPELINE_LABELS,
+        deriveRobotMode,
+        getStepElapsedMs,
+        fmtDuration,
+        fmtTime,
+        withTokenUrl,
+        requestRender: renderPipeline,
+      });
     }
 
     function setStep(step, status, detail) {
-      if (status === "active") state.stepStartedAt[step] = Date.now();
+      if (status === "active") {
+        state.stepStartedAt[step] = Date.now();
+        state.stepDurations[step] = 0;
+      } else if ((status === "done" || status === "error") && state.stepStartedAt[step]) {
+        state.stepDurations[step] = Math.max(0, Date.now() - state.stepStartedAt[step]);
+      }
       state.stepState[step] = {status, detail};
       renderPipeline();
+      syncFlowChecklist();
+    }
+
+    function syncFlowChecklist() {
+      if (!state.flowChecklistVisible) {
+        return;
+      }
+
+      const steps = FLOW_CHAT_STEP_KEYS.map((key) => {
+        const stepData = state.stepState[key] || {};
+        const st = stepData.status || "idle";
+        let status = "todo";
+        if (st === "active") status = "active";
+        else if (st === "done") status = "done";
+        else if (st === "error") status = "error";
+        
+        let detailBase = st === "active"
+          ? "进行中"
+          : st === "done"
+            ? "已完成"
+            : st === "error"
+              ? "异常"
+              : "待执行";
+              
+        let detail = detailBase;
+        // 尝试从底层的 stepData.detail 中提取有用的附加信息用于展示
+        const extraText = (stepData.detail || "").split('\nrequestId=')[0].trim();
+        // 过滤掉基础的通用描述以避免重复，主要透出我们自定义的结果
+        if (extraText && !["等待发送后检测提示词", "进行中", "待执行", "等待提示词检测通过", "等待声纹和唤醒词检测通过"].includes(extraText)) {
+          detail = `${detailBase} - ${extraText.replace(/\n/g, ' | ')}`;
+        }
+
+        const label = key === "wake"
+          ? `声纹检测与唤醒词检测`
+          : (FLOW_CHAT_STEP_LABELS[key] || key);
+        return {
+          key,
+          label,
+          status,
+          detail,
+        };
+      });
+
+      const hasError = steps.some((item) => item.status === "error");
+      const doneCount = steps.filter((item) => item.status === "done").length;
+      const allDone = doneCount > 0 && steps.every((item) => item.status === "done" || item.status === "todo");
+      const subtitle = hasError
+        ? "流程中断，请重试异常步骤"
+        : allDone
+          ? "当前流程可继续下一轮"
+          : doneCount > 0
+            ? "流程进行中"
+            : "按固定流程逐步完成";
+
+      updateFlowChecklist({
+        title: "本轮执行清单",
+        subtitle,
+        steps,
+      });
     }
 
     async function ensureVisibleStep(step, minMs) {
@@ -1040,22 +1313,37 @@
     }
 
     function resetProcess(reason = "等待新的输入") {
+      hideTranscriptReview({ clearPending: true, clearDraft: false });
+      clearPendingRecord({ keepStatus: true });
+      if (state.pipelineRenderTimer) {
+        clearInterval(state.pipelineRenderTimer);
+        state.pipelineRenderTimer = null;
+      }
       state.stepState = {
+        wake: {status: "idle", detail: "等待发送后检测提示词"},
         record: {status: "idle", detail: reason},
         upload: {status: "idle", detail: "未开始"},
         transcribe: {status: "idle", detail: "未开始"},
         transcript: {status: "idle", detail: "等待转写结果"},
-        claw: {status: "idle", detail: "等待发送给 OpenClaw"},
+        claw: {status: "idle", detail: "等待发送给语音智能体"},
+        tts: {status: "idle", detail: "等待语音合成"},
+        audio: {status: "idle", detail: "等待弹出语音消息"},
       };
+      state.stepStartedAt = {};
+      state.stepDurations = {};
       state.pendingTranscript = "";
       state.lastTts = null;
+      updateSpeakerCard();
       if (state.localCapture?.url) URL.revokeObjectURL(state.localCapture.url);
       state.localCapture = null;
       state.lastUpload = null;
       state.lastWakeProbe = null;
       state.lastAssistantReply = "";
       state.currentRequestId = "";
+      state.pendingTranscript = "";
+      refreshSendButtonText();
       renderPipeline();
+      syncFlowChecklist();
     }
 
     async function enterStandby(reason = "等待唤醒词") {
@@ -1072,48 +1360,20 @@
       }
     }
 
-    function addMessage(role, content) {
-      const div = document.createElement("div");
-      div.className = `msg ${role}`;
-      div.textContent = content;
-      messagesEl.appendChild(div);
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-    }
-
-    function renderMessages(items) {
-      messagesEl.innerHTML = "";
-      if (!items.length) {
-        addMessage("system", "新会话已就绪。可以直接发文本，或录音/上传音频。\n\n录音不会在浏览器里识别，而是上传到服务器后转写。")
-        return;
-      }
-      for (const item of items) addMessage(item.role || "system", item.content || "");
-    }
-
-    async function api(path, init = {}) {
-      const headers = new Headers(init.headers || {});
-      if (state.authToken) headers.set("X-Webchat-Token", state.authToken);
-      const req = { ...init, headers };
-      const res = await fetch(path, req);
-      const text = await res.text();
-      let data = null;
-      try { data = JSON.parse(text); } catch {}
-      if (!res.ok) {
-        const message = data && data.error ? data.error : text || `HTTP ${res.status}`;
-        throw new Error(message);
-      }
-      return data;
-    }
-
     async function loadMessages() {
       if (!state.authenticated) {
         statusEl.textContent = "请输入 gateway token 后连接。";
         updateAuthUi();
+        state.flowChecklistVisible = false;
+        clearFlowChecklist();
         return;
       }
       setBusy(true, "加载会话...");
       try {
         const data = await api(`/api/messages?session=${encodeURIComponent(state.session)}`);
-        renderMessages(data.messages || []);
+        renderMessages(data.messages || [], { voiceRecords: voiceRecordsForCurrentSession() });
+        state.flowChecklistVisible = false;
+        syncFlowChecklist();
         statusEl.textContent = `已加载 ${state.session}`;
         logProcess("会话已加载", `session=${state.session}`);
       } catch (err) {
@@ -1121,6 +1381,107 @@
         logProcess("会话加载失败", err.message);
       } finally {
         setBusy(false, statusEl.textContent);
+      }
+    }
+
+    async function loadSessions() {
+      if (!state.authenticated) {
+        renderSessionList();
+        return;
+      }
+      try {
+        const data = await api("/api/sessions");
+        renderSessionList(Array.isArray(data.sessions) ? data.sessions : []);
+      } catch (err) {
+        logProcess("历史会话加载失败", err.message);
+        renderSessionList();
+      }
+    }
+
+    async function switchSession(session) {
+      const next = String(session || "").trim();
+      if (!next || next === state.session) return;
+      stopWakeDebugPolling();
+      await stopWakeListener();
+      if (state.recording) {
+        try {
+          await stopRecording();
+        } catch {
+          state.recording = false;
+        }
+      }
+      setSession(next);
+      state.voiceMessages = {};
+      logProcess("切换会话", next);
+      void pollWakeDebug();
+      await loadMessages();
+      await enterStandby(`会话已切换，等待唤醒词：${state.wakePhrase}`);
+      void loadSessions();
+    }
+
+    async function createNewSession() {
+      setSession(makeSession());
+      state.voiceMessages = {};
+      renderMessages([]);
+      state.flowChecklistVisible = false;
+      clearFlowChecklist();
+      statusEl.textContent = `已切换到 ${state.session}`;
+      logProcess("切换到新会话", state.session);
+      renderSessionList();
+      void pollWakeDebug();
+      await enterStandby(`新会话待机，等待唤醒词：${state.wakePhrase}`);
+    }
+
+    async function deleteSession(session) {
+      const target = String(session || "").trim();
+      if (!target || !state.authenticated) return;
+      try {
+        hideSessionContextMenu();
+        const wasCurrent = target === state.session;
+        const data = await api(`/api/sessions?session=${encodeURIComponent(target)}`, { method: "DELETE" });
+        clearSessionLocalArtifacts(target);
+        renderSessionList(Array.isArray(data.sessions) ? data.sessions : []);
+        logProcess("删除历史会话", target);
+      if (wasCurrent) {
+          setSession(makeSession());
+          state.voiceMessages = {};
+          renderMessages([]);
+          state.flowChecklistVisible = false;
+          clearFlowChecklist();
+          statusEl.textContent = "当前会话已删除，已切换到新会话";
+          await enterStandby(`新会话待机，等待唤醒词：${state.wakePhrase}`);
+          void loadSessions();
+        } else {
+          statusEl.textContent = "历史会话已删除";
+        }
+      } catch (err) {
+        statusEl.textContent = `删除失败: ${err.message}`;
+        logProcess("删除历史会话失败", err.message);
+      }
+    }
+
+    async function clearAllSessions() {
+      if (!state.authenticated) return;
+      const ok = window.confirm("确定清空所有历史会话吗？当前列表会被清空，并切换到一个新会话。");
+      if (!ok) return;
+      try {
+        hideSessionContextMenu();
+        const sessions = [...state.sessions];
+        await api("/api/sessions", { method: "DELETE" });
+        sessions.forEach((item) => clearSessionLocalArtifacts(item.id));
+        setSession(makeSession());
+        state.voiceMessages = {};
+        state.sessions = [];
+        renderMessages([]);
+        state.flowChecklistVisible = false;
+        clearFlowChecklist();
+        renderSessionList([]);
+        statusEl.textContent = "历史会话已清空";
+        logProcess("清空历史会话", `${sessions.length} 个`);
+        await enterStandby(`新会话待机，等待唤醒词：${state.wakePhrase}`);
+      } catch (err) {
+        statusEl.textContent = `清空失败: ${err.message}`;
+        logProcess("清空历史会话失败", err.message);
       }
     }
 
@@ -1144,28 +1505,11 @@
           ts: wake.ts,
           engine: wake.engine,
           matched: !!wake.matched,
-          wakeMatched: !!wake.wakeMatched,
-          speakerMatched: !!wake.speakerMatched,
-          speakerScore: wake.speakerScore,
-          speakerThreshold: wake.speakerThreshold,
-          speakerEnabled: !!wake.speakerEnabled,
-          speakerId: wake.speakerId || "",
-          speakerMatchMode: wake.speakerMatchMode || state.speakerMatchMode || "all",
-          speakerBackend: wake.speakerBackend || "",
-          speakerModelId: wake.speakerModelId || "",
-          speakerReason: wake.speakerReason || "",
-          speakerError: wake.speakerError || "",
           text: wake.text || "",
           wakePhrase: wake.wakePhrase || state.wakePhrase,
           requestId: wake.requestId || "",
           bytes: wake.bytes || 0,
         };
-        state.lastSpeakerScore = wake.speakerScore ?? state.lastSpeakerScore;
-        state.lastSpeakerResult = wake.speakerEnabled
-          ? (wake.speakerMatched ? "通过" : (wake.speakerReason === "speaker profile not enrolled" ? "未注册" : "未通过"))
-          : "已关闭";
-        state.lastSpeakerReason = wake.speakerReason || "";
-        updateSpeakerUi();
         renderPipeline();
       } catch {}
     }
@@ -1196,8 +1540,8 @@
         updateAuthUi();
         statusEl.textContent = "已连接";
         logProcess("通过 gateway token 连接", `clientId=${state.clientId}`);
+        await loadSessions();
         await loadMessages();
-        await loadSpeakerStatus();
         await enterStandby(`已连接，等待唤醒词：${state.wakePhrase}`);
       } catch (err) {
         state.authenticated = false;
@@ -1212,14 +1556,81 @@
     async function sendMessage(message, opts = {}) {
       const text = (message || draftEl.value).trim();
       if (!text || state.busy) return;
+
+      if (!opts.requestId) {
+        state.stepState.wake = {status: "idle", detail: "待执行"};
+        state.stepState.claw = {status: "idle", detail: "待执行"};
+        state.stepState.tts = {status: "idle", detail: "待执行"};
+        state.stepState.audio = {status: "idle", detail: "待执行"};
+      }
+
+      beginNewFlowChecklist();
+      state.flowChecklistVisible = true;
+
       const requestId = opts.requestId || state.currentRequestId || makeId("chat");
+      const voiceMessage = opts.voiceMessage || state.voiceMessages[requestId] || null;
+      hideTranscriptReview({ clearPending: true, clearDraft: false });
       draftEl.value = "";
-      addMessage("user", text);
-      addMessage("system", "处理中...");
-      setBusy(true, "OpenClaw 正在回复...");
+      refreshSendButtonText();
+      upsertTraceRecord(requestId, {
+        userText: text,
+        status: "Agent 执行中",
+      });
+      if (voiceMessage?.url) {
+        addMessage("user", "", withTokenUrl(voiceMessage.url), {
+          transcriptText: text,
+          transcriptLabel: "查看识别文本",
+        });
+      } else {
+        addMessage("user", text);
+      }
+      setStep("wake", "active", `正在进行声纹核验与唤醒词匹配...\nrequestId=${requestId}`);
+      updateSpeakerCard("active", "核验中", "正在进行声纹核验");
+
+      const hasVoiceprintError = text.includes("声纹有问题");
+      const hasWakePhrase = containsWakePhrase(text);
+
+      if (hasVoiceprintError) {
+        addMessage("assistant", `身份验证失败：未识别到有效声纹特征。`);
+        statusEl.textContent = `声纹异常，无法验证身份`;
+        setStep("wake", "error", `声纹有问题\n无法验证当前用户身份\nrequestId=${requestId}`);
+        setStep("claw", "idle", "等待声纹和唤醒词检测通过");
+        setStep("tts", "idle", "等待 Agent 回复");
+        setStep("audio", "idle", "等待 TTS 语音消息");
+        logProcess("安全校验未通过", `声纹异常\ntext=${text}\nrequestId=${requestId}`);
+        upsertTraceRecord(requestId, {
+          status: "声纹校验失败",
+          assistantReply: "身份验证失败：未识别到有效声纹特征。",
+        });
+        updateSpeakerCard("error", "未通过", "声纹核验失败");
+        draftEl.focus();
+        return;
+      }
+
+      if (!hasWakePhrase) {
+        addMessage("assistant", `提示：唤醒词不在。你需要说出唤醒词“${state.wakePhrase}”才能进行下一步。`);
+        statusEl.textContent = `唤醒词不在：${state.wakePhrase}`;
+        setStep("wake", "error", `唤醒词不在\n未检测到有效唤醒词：${state.wakePhrase}\nrequestId=${requestId}`);
+        setStep("claw", "idle", "等待声纹和唤醒词检测通过");
+        setStep("tts", "idle", "等待 Agent 回复");
+        setStep("audio", "idle", "等待 TTS 语音消息");
+        logProcess("提示词校验未通过", `text=${text}\nrequestId=${requestId}`);
+        upsertTraceRecord(requestId, {
+          status: "唤醒词未命中",
+          assistantReply: `提示：唤醒词不在。你需要说出唤醒词“${state.wakePhrase}”才能进行下一步。`,
+        });
+        updateSpeakerCard("active", "张三", "声纹已通过，等待唤醒词");
+        draftEl.focus();
+        return;
+      }
+
+      setStep("wake", "done", `检测通过。已识别声纹角色：【张三】\n命中唤醒词：${state.wakePhrase}\nrequestId=${requestId}`);
+      updateSpeakerCard("verified", "张三", "声纹已通过");
+      const pendingMessageEl = addMessage("assistant", "思考中...", null, { thinking: true });
+      setBusy(true, "语音智能体正在回复...");
       state.pendingTranscript = "";
-      setStep("claw", "active", `文本已经送进 OpenClaw，等待回复\nrequestId=${requestId}`);
-      logProcess("送进 OpenClaw", `${text}\nclientId=${state.clientId}\nrequestId=${requestId}\nsession=${state.session}`);
+      setStep("claw", "active", `文本已经送进语音智能体，等待回复\nrequestId=${requestId}`);
+      logProcess("送进语音智能体", `${text}\nclientId=${state.clientId}\nrequestId=${requestId}\nsession=${state.session}`);
       try {
         const data = await api("/api/chat", {
           method: "POST",
@@ -1232,28 +1643,48 @@
           body: JSON.stringify({ session: state.session, message: text }),
         });
         await ensureVisibleStep("claw", 900);
-        renderMessages(data.messages || []);
-        state.lastAssistantReply = data.reply || "";
+        if (pendingMessageEl && pendingMessageEl.isConnected) pendingMessageEl.remove();
+        const fallbackReply = (Array.isArray(data.messages) ? [...data.messages].reverse().find((item) => (item.role || "") === "assistant")?.content : "") || "";
+        const assistantReply = (data.reply || fallbackReply || "").trim();
+        const knowledgeCitations = Array.isArray(data?.meta?.knowledge?.citations) ? data.meta.knowledge.citations : [];
+        if (!state.autoTts || !assistantReply) {
+          addMessage("assistant", assistantReply || "[empty]", null, { citations: knowledgeCitations });
+        }
+        state.lastAssistantReply = assistantReply;
         statusEl.textContent = "已完成";
         setStep("claw", "done", `runId=${data.runId || "unknown"}\nrequestId=${requestId}`);
-        logProcess("OpenClaw 回复完成", `${data.reply || ""}\nclientId=${state.clientId}\nrequestId=${requestId}`);
-        if (state.autoTts && data.reply) {
-          await synthesizeReplyAudio(data.reply, requestId);
+        logProcess("语音智能体回复完成", `${assistantReply}\nclientId=${state.clientId}\nrequestId=${requestId}`);
+        upsertTraceRecord(requestId, {
+          assistantReply,
+          status: state.autoTts && assistantReply ? "等待回复语音" : "已完成",
+        });
+        if (state.autoTts && assistantReply) {
+          await synthesizeReplyAudio(assistantReply, requestId, { citations: knowledgeCitations });
         }
         state.currentRequestId = "";
       } catch (err) {
+        if (pendingMessageEl && pendingMessageEl.isConnected) pendingMessageEl.remove();
         statusEl.textContent = `发送失败: ${err.message}`;
         setStep("claw", "error", `${err.message}\nrequestId=${requestId}`);
-        logProcess("OpenClaw 回复失败", `${err.message}\nclientId=${state.clientId}\nrequestId=${requestId}`);
-        await loadMessages();
+        addMessage("assistant", `Agent 请求失败：${err.message}`);
+        logProcess("语音智能体回复失败", `${err.message}\nclientId=${state.clientId}\nrequestId=${requestId}`);
+        upsertTraceRecord(requestId, {
+          status: "Agent 执行失败",
+          assistantReply: err.message,
+        });
       } finally {
+        delete state.voiceMessages[requestId];
+        // Freeze this round's checklist card so later recording/transcribe status won't mutate it.
+        state.flowChecklistVisible = false;
         if (state.wakeEnabled && state.authenticated && !state.recording && !state.autoTts) scheduleWakeResume(900);
+        void loadSessions();
         setBusy(false, statusEl.textContent);
       }
     }
 
-    async function synthesizeReplyAudio(text, requestId) {
+    async function synthesizeReplyAudio(text, requestId, options = {}) {
       setStep("tts", "active", `mode=${state.ttsMode}\nvoice=${state.ttsVoice}\nrequestId=${requestId}`);
+      setStep("audio", "active", "等待 TTS 返回音频 URL");
       logProcess("开始合成回复语音", `${text}\nmode=${state.ttsMode}\nvoice=${state.ttsVoice}\nrequestId=${requestId}`);
       try {
         const data = await api("/api/tts", {
@@ -1275,34 +1706,54 @@
         state.lastTts = data.audio || null;
         setStep("tts", "done", `mode=${data.audio?.mode || state.ttsMode}\nvoice=${data.audio?.voice || state.ttsVoice}\nrequestId=${requestId}`);
         logProcess("回复语音完成", `${data.audio?.filename || ""}\nprovider=${data.audio?.provider || ""}\nmode=${data.audio?.mode || state.ttsMode}\nrequestId=${requestId}`);
-        renderPipeline();
-        if (ttsProofAudioEl) {
-          ttsProofAudioEl.pause();
-          ttsProofAudioEl.currentTime = 0;
-          ttsProofAudioEl.load();
-          await new Promise((resolve) => {
-            if (Number.isFinite(ttsProofAudioEl.duration) && ttsProofAudioEl.duration > 0) {
-              resolve();
-              return;
-            }
-            const done = () => {
-              ttsProofAudioEl.removeEventListener("loadedmetadata", done);
-              ttsProofAudioEl.removeEventListener("canplay", done);
-              resolve();
-            };
-            ttsProofAudioEl.addEventListener("loadedmetadata", done, { once: true });
-            ttsProofAudioEl.addEventListener("canplay", done, { once: true });
-            setTimeout(done, 1200);
+        
+        // 在对话框中显示音频
+        if (data.audio?.url) {
+          setStep("audio", "done", `语音生成完成\nrequestId=${requestId}`);
+          addMessage("assistant", "", data.audio.url || "/api/default-audio", {
+            scrollBehavior: "smooth",
+            transcriptText: text,
+            citations: options.citations,
+            transcriptLabel: "查看回复文本",
           });
-          void ttsProofAudioEl.play().then(() => {
-            if (state.wakeEnabled) updateWakeUi("回复播放中，结束后自动回到待机");
-          }).catch(() => {
-            if (state.wakeEnabled && state.authenticated && !state.recording) scheduleWakeResume(1200);
+          upsertTraceRecord(requestId, {
+            ttsAudioUrl: data.audio.url,
+            ttsVoice: data.audio.voice || state.ttsVoice,
+            ttsMode: data.audio.mode || state.ttsMode,
+            status: "已完成",
+          });
+        } else {
+          setStep("audio", "done", `使用默认语音资源\nrequestId=${requestId}`);
+          addMessage("assistant", "", "/api/default-audio", {
+            scrollBehavior: "smooth",
+            transcriptText: text,
+            citations: options.citations,
+            transcriptLabel: "查看回复文本",
+          });
+          upsertTraceRecord(requestId, {
+            ttsAudioUrl: "/api/default-audio",
+            status: "已完成",
           });
         }
+        
+        renderPipeline();
+        autoplayProofAudio(ttsProofAudioEl, {
+          onPlaying: () => {
+            if (state.wakeEnabled) updateWakeUi("回复播放中，结束后自动回到待机");
+          },
+          onFallback: () => {
+            if (state.wakeEnabled && state.authenticated && !state.recording) scheduleWakeResume(1200);
+          },
+        });
       } catch (err) {
         setStep("tts", "error", `${err.message}\nrequestId=${requestId}`);
+        setStep("audio", "error", `${err.message}\nrequestId=${requestId}`);
+        addMessage("assistant", text, null, { citations: options.citations });
         logProcess("回复语音失败", `${err.message}\nrequestId=${requestId}`);
+        upsertTraceRecord(requestId, {
+          status: "语音生成失败",
+          ttsError: err.message,
+        });
         if (state.wakeEnabled && state.authenticated && !state.recording) scheduleWakeResume(1200);
       }
     }
@@ -1332,21 +1783,52 @@
         await ensureVisibleStep("transcribe", 700);
         state.lastUpload = data.upload || null;
         state.pendingTranscript = data.text || "";
-        draftEl.value = state.pendingTranscript;
+        draftEl.value = "";
+        showTranscriptReview("可在输入框中修改后，点击“确认发送”或“取消”。", state.pendingTranscript);
+        refreshSendButtonText();
         statusEl.textContent = `转写完成，请确认文本后再发送：${data.text}`;
         setStep("upload", "done", `${filename} 已上传\nrequestId=${requestId}`);
         setStep("transcribe", "done", `requested=${state.transcriptLanguage} / detected=${data.meta?.language || "unknown"}\nrequestId=${requestId}`);
         setStep("transcript", "done", `${data.text || "[empty]"}\nrequestId=${requestId}`);
         logProcess("服务器转写完成", `${data.text || "[empty]"}\nclientId=${state.clientId}\nrequestId=${requestId}\nuploadId=${data.upload?.id || "unknown"}\nsha256=${data.upload?.sha256 || "unknown"}`);
-        setBusy(false, statusEl.textContent);
         const shouldAutoSend = opts.autoSendOverride === true || state.autoSend;
-        if (shouldAutoSend) await sendMessage(data.text || "", {requestId});
+        if (data.upload?.url) {
+          state.voiceMessages[requestId] = {
+            url: data.upload.url,
+            filename: data.upload.filename || filename,
+            transcript: data.text || "",
+          };
+        }
+        upsertTraceRecord(requestId, {
+          userAudioUrl: data.upload?.url || "",
+          userAudioName: data.upload?.filename || filename,
+          userAudioBytes: data.upload?.bytes || blob.size || 0,
+          transcript: data.text || "",
+          status: shouldAutoSend ? "等待 Agent 回复" : "待确认发送",
+        });
+        setBusy(false, statusEl.textContent);
+        if (shouldAutoSend) {
+          // TEST 模式：如果后端标记了 test_mode，发送 test_auto_send_text 而不是转写结果
+          if (data.meta?.test_mode && data.meta?.test_auto_send_text) {
+            const testAutoSendText = data.meta.test_auto_send_text;
+            logProcess("演示模式自动发送", `送进语音智能体: ${testAutoSendText}\nrequestId=${requestId}`);
+            await sendMessage(testAutoSendText, {requestId});
+          } else {
+            // 正常模式：发送转写结果
+            await sendMessage(data.text || "", {requestId});
+          }
+        }
         else if (state.wakeEnabled && state.authenticated) scheduleWakeResume(1800);
       } catch (err) {
+        delete state.voiceMessages[requestId];
         statusEl.textContent = `转写失败: ${err.message}`;
         setStep("upload", "done", `${filename} 已上传\nrequestId=${requestId}`);
         setStep("transcribe", "error", `${err.message}\nrequestId=${requestId}`);
         logProcess("服务器转写失败", `${err.message}\nclientId=${state.clientId}\nrequestId=${requestId}`);
+        upsertTraceRecord(requestId, {
+          status: "转写失败",
+          transcript: err.message,
+        });
         setBusy(false, statusEl.textContent);
         if (state.wakeEnabled && state.authenticated) scheduleWakeResume(1800);
       }
@@ -1381,7 +1863,7 @@
       state.speechSeenAt = 0;
       state.silenceSince = 0;
       state.stopRequested = false;
-      recordBtn.textContent = "开始录音";
+      applyVoiceInputMode(state.voiceInputMode);
       updateWakeUi();
     }
 
@@ -1409,6 +1891,7 @@
         const blob = new Blob(state.mediaChunks, { type: recorder.mimeType || "audio/webm" });
         const sizeKb = Math.round((blob.size || 0) / 1024);
         const requestId = makeId("tx");
+        const autoSendOverride = state.currentRecordAutoSend;
         if (state.localCapture?.url) URL.revokeObjectURL(state.localCapture.url);
         state.localCapture = {
           requestId,
@@ -1418,14 +1901,24 @@
         };
         await cleanupRecording();
         recordBtn.disabled = false;
-        statusEl.textContent = `录音完成，准备上传浏览器原始录音 (${sizeKb} KB, ${blob.type || "unknown"})`;
+        clearPendingRecord({ keepStatus: true });
+        const ext = blob.type.includes("webm") ? "webm" : blob.type.includes("mp4") ? "m4a" : blob.type.includes("ogg") ? "ogg" : "bin";
+        state.pendingRecord = {
+          blob,
+          bytes: blob.size || 0,
+          mimeType: blob.type || "audio/webm",
+          url: URL.createObjectURL(blob),
+          requestId,
+          filename: `recording-${Date.now()}.${ext}`,
+          autoSendOverride,
+        };
+        showPendingRecordReview();
+        statusEl.textContent = `录音完成，请试听后确认上传 (${sizeKb} KB, ${blob.type || "unknown"})`;
         setStep("record", "done", `${sizeKb} KB / ${blob.type || "unknown"}`);
-        setStep("upload", "active", "等待浏览器开始上传");
-        setStep("transcribe", "active", "服务器收到音频后会开始转写");
+        setStep("upload", "idle", "等待确认上传");
+        setStep("transcribe", "idle", "等待确认上传");
         logProcess("录音完成", `${sizeKb} KB / ${blob.type || "unknown"}\nrequestId=${requestId}`);
         renderPipeline();
-        const ext = blob.type.includes("webm") ? "webm" : blob.type.includes("mp4") ? "m4a" : blob.type.includes("ogg") ? "ogg" : "bin";
-        await transcribeBlob(blob, `recording-${Date.now()}.${ext}`, { requestId, autoSendOverride: state.currentRecordAutoSend });
       } catch (err) {
         await cleanupRecording();
         recordBtn.disabled = false;
@@ -1440,6 +1933,7 @@
         await stopRecordingAndUpload();
         return;
       }
+      if (state.pendingRecord) clearPendingRecord({ keepStatus: true });
       if (!navigator.mediaDevices?.getUserMedia) {
         statusEl.textContent = "当前浏览器不支持录音。";
         return;
@@ -1506,42 +2000,85 @@
         sendMessage();
       }
     });
+    draftEl.addEventListener("input", () => refreshSendButtonText());
+    if (transcriptConfirmBtn) transcriptConfirmBtn.addEventListener("click", () => void confirmTranscriptAndSend());
+    if (transcriptCancelBtn) transcriptCancelBtn.addEventListener("click", () => cancelTranscriptReview());
+    if (transcriptReviewEditorEl) {
+      transcriptReviewEditorEl.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault();
+          void confirmTranscriptAndSend();
+        }
+      });
+    }
     recordBtn.addEventListener("click", () => startRecording());
+    if (recordConfirmBtn) recordConfirmBtn.addEventListener("click", () => void confirmPendingRecordUpload());
+    if (recordCancelBtn) recordCancelBtn.addEventListener("click", () => void cancelPendingRecordUpload());
     uploadBtn.addEventListener("click", () => audioInput.click());
+    if (voiceInputModeEl) {
+      voiceInputModeEl.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const button = target.closest("[data-voice-input-mode]");
+        if (!(button instanceof HTMLElement)) return;
+        applyVoiceInputMode(button.dataset.voiceInputMode || "ptt");
+        logProcess("切换语音输入模式", state.voiceInputMode === "stream" ? "连续语音输入" : "PTT 单指令");
+      });
+    }
+    if (advancedSettingsBtn) {
+      advancedSettingsBtn.addEventListener("click", () => openAdvancedSettingsModal());
+    }
+    if (advancedSettingsCloseBtn) {
+      advancedSettingsCloseBtn.addEventListener("click", () => closeAdvancedSettingsModal());
+    }
+    if (advancedSettingsModalEl) {
+      advancedSettingsModalEl.addEventListener("click", (event) => {
+        const target = event.target;
+        if (target instanceof HTMLElement && target.dataset.closeAdvanced === "1") {
+          closeAdvancedSettingsModal();
+        }
+      });
+    }
+    if (traceHistoryBtn) traceHistoryBtn.addEventListener("click", () => openTraceHistoryModal());
+    if (traceHistoryCloseBtn) traceHistoryCloseBtn.addEventListener("click", () => closeTraceHistoryModal());
+    if (traceHistoryClearBtn) traceHistoryClearBtn.addEventListener("click", () => clearTraceHistory());
+    if (traceHistoryModalEl) {
+      traceHistoryModalEl.addEventListener("click", (event) => {
+        const target = event.target;
+        if (target instanceof HTMLElement && target.dataset.closeTraceHistory === "1") {
+          closeTraceHistoryModal();
+        }
+      });
+    }
+    if (debugTerminalBtn) debugTerminalBtn.addEventListener("click", () => openDebugTerminalModal());
+    if (knowledgeTestBtn) {
+      knowledgeTestBtn.addEventListener("click", () => {
+        const url = new URL("/static/pages/knowledge-test/index.html", window.location.origin);
+        if (state.session) url.searchParams.set("session", state.session);
+        if (state.authToken) url.searchParams.set("token", state.authToken);
+        window.open(url.toString(), "_blank", "noopener");
+      });
+    }
+    if (debugTerminalCloseBtn) debugTerminalCloseBtn.addEventListener("click", () => closeDebugTerminalModal());
+    if (debugTerminalRefreshBtn) debugTerminalRefreshBtn.addEventListener("click", () => void refreshDebugTerminal());
+    if (debugTerminalModalEl) {
+      debugTerminalModalEl.addEventListener("click", (event) => {
+        const target = event.target;
+        if (target instanceof HTMLElement && target.dataset.closeDebugTerminal === "1") {
+          closeDebugTerminalModal();
+        }
+      });
+    }
     authBtnEl.addEventListener("click", () => connectWithToken(tokenInputEl.value));
-    if (fastModeBtnEl) fastModeBtnEl.addEventListener("click", switchFastMode);
     tokenInputEl.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
         connectWithToken(tokenInputEl.value);
       }
     });
-    micSelectEl.addEventListener("change", () => {
-      state.selectedDeviceId = micSelectEl.value || "";
-      sessionStore.setItem("openclaw-webchat-mic-device", state.selectedDeviceId);
-      logProcess("切换麦克风设备", state.selectedDeviceId || "default");
-    });
+    if (micSelectEl) micSelectEl.addEventListener("change", () => onMicSelected(micSelectEl.value));
+    if (micQuickSelectEl) micQuickSelectEl.addEventListener("change", () => onMicSelected(micQuickSelectEl.value));
     refreshMicsBtn.addEventListener("click", () => refreshMicDevices());
-    speakerSelectEl.addEventListener("change", () => switchSpeakerIdentity(speakerSelectEl.value));
-    speakerSwitchBtn.addEventListener("click", () => switchSpeakerIdentity(speakerIdInputEl.value));
-    speakerIdInputEl.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        switchSpeakerIdentity(speakerIdInputEl.value);
-      }
-    });
-    speakerMatchModeSelectEl.addEventListener("change", () => {
-      state.speakerMatchMode = speakerMatchModeSelectEl.value === "current" ? "current" : "all";
-      localStorage.setItem("openclaw-webchat-speaker-match-mode", state.speakerMatchMode);
-      updateSpeakerUi();
-      logProcess("切换唤醒身份范围", state.speakerMatchMode === "current" ? "仅当前身份可唤醒" : "所有身份可唤醒");
-    });
-    speakerEnrollBtn.addEventListener("click", () => enrollSpeaker());
-    speakerRefreshBtn.addEventListener("click", () => loadSpeakerStatus());
-    speakerEnrollRecordBtn.addEventListener("click", () => recordSpeakerEnrollPass());
-    speakerEnrollSubmitBtn.addEventListener("click", () => enrollSpeaker());
-    speakerEnrollCancelBtn.addEventListener("click", () => closeSpeakerEnrollModal());
-    speakerEnrollCloseBtn.addEventListener("click", () => closeSpeakerEnrollModal());
     wakeToggleEl.addEventListener("change", async () => {
       state.wakeEnabled = !!wakeToggleEl.checked;
       if (state.wakeEnabled) {
@@ -1561,6 +2098,7 @@
       state.wakePhrase = (wakePhraseInputEl.value || "你好").trim() || "你好";
       localStorage.setItem("openclaw-webchat-wake-phrase", state.wakePhrase);
       logProcess("更新唤醒词", `${state.wakePhrase}\nclientId=${state.clientId}`);
+      renderQuickReplies();
       if (state.wakeEnabled) {
         await stopWakeListener();
         await startWakeListener();
@@ -1581,6 +2119,14 @@
       localStorage.setItem("openclaw-webchat-auto-send", state.autoSend ? "1" : "0");
       logProcess("切换自动发送", `${state.autoSend ? "on" : "off"}\nclientId=${state.clientId}`);
     });
+    if (llmBackendSelectEl) {
+      llmBackendSelectEl.addEventListener("change", () => {
+        state.llmBackend = llmBackendSelectEl.value === "remote" ? "remote" : "local";
+        localStorage.setItem("openclaw-webchat-llm-backend", state.llmBackend);
+        updateLlmBackendUi();
+        logProcess("切换对话模型来源", `${state.llmBackend}\nclientId=${state.clientId}`);
+      });
+    }
     ttsModeSelectEl.addEventListener("change", () => {
       state.ttsMode = ttsModeSelectEl.value || "api";
       localStorage.setItem("openclaw-webchat-tts-mode", state.ttsMode);
@@ -1603,22 +2149,71 @@
       await transcribeBlob(file, file.name || `upload-${Date.now()}`);
     });
     reloadBtn.addEventListener("click", loadMessages);
-    newSessionBtn.addEventListener("click", () => {
-      setSession(makeSession());
-      renderMessages([]);
-      statusEl.textContent = `已切换到 ${state.session}`;
-      logProcess("切换到新会话", state.session);
-      void pollWakeDebug();
-      void enterStandby(`新会话待机，等待唤醒词：${state.wakePhrase}`);
-    });
+    newSessionBtn.addEventListener("click", () => void createNewSession());
+    if (sessionSidebarNewBtn) sessionSidebarNewBtn.addEventListener("click", () => void createNewSession());
+    if (sessionSidebarClearBtn) sessionSidebarClearBtn.addEventListener("click", () => void clearAllSessions());
     sessionEl.addEventListener("change", () => {
       const next = sessionEl.value.trim();
       if (!next) return;
-      setSession(next);
-      logProcess("切换会话", next);
-      void pollWakeDebug();
-      loadMessages().then(() => enterStandby(`会话已切换，等待唤醒词：${state.wakePhrase}`));
+      void switchSession(next);
     });
+    document.addEventListener("click", (event) => {
+      const target = event.target;
+      const menu = document.querySelector(".session-context-menu");
+      if (!(target instanceof HTMLElement) || !menu || !target.closest(".session-context-menu")) {
+        hideSessionContextMenu();
+        return;
+      }
+      const action = target.dataset.action;
+      const session = menu.getAttribute("data-session") || "";
+      if (action === "delete") void deleteSession(session);
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") hideSessionContextMenu();
+      if (event.key === "Escape" && advancedSettingsModalEl && !advancedSettingsModalEl.classList.contains("hidden")) {
+        closeAdvancedSettingsModal();
+      }
+      if (event.key === "Escape" && traceHistoryModalEl && !traceHistoryModalEl.classList.contains("hidden")) {
+        closeTraceHistoryModal();
+      }
+      if (event.key === "Escape" && debugTerminalModalEl && !debugTerminalModalEl.classList.contains("hidden")) {
+        closeDebugTerminalModal();
+      }
+    });
+
+    function renderQuickReplies() {
+      if (!quickRepliesEl) return;
+      
+      const wake = state.wakePhrase || "你好";
+      const replies = [
+        `${wake}，塔台，南方8900请求起飞。`,
+        `${wake}，进近，请确认当前跑道风向风速。`,
+        `${wake}，请报告当前的离场航线。`,
+        `${wake}，雷达确认，保持当前高度9000米。`
+      ];
+      
+      quickRepliesEl.innerHTML = "";
+      replies.forEach(text => {
+        const btn = document.createElement("button");
+        btn.className = "quick-reply-chip";
+        btn.textContent = text;
+        btn.type = "button";
+        btn.onclick = () => {
+          draftEl.value = text;
+          draftEl.focus();
+        };
+        quickRepliesEl.appendChild(btn);
+      });
+      updateQuickRepliesVisibility();
+    }
+
+    function updateLlmBackendUi() {
+      if (llmBackendSelectEl) llmBackendSelectEl.value = state.llmBackend;
+      if (!llmBackendStatusEl) return;
+      llmBackendStatusEl.textContent = state.llmBackend === "remote"
+        ? "远程 API 入口已选择，但后端接口尚未接入；当前聊天仍走本地大模型。"
+        : "当前聊天使用本地大模型接口。";
+    }
 
     const initial = qsSession() || sessionStore.getItem("openclaw-webchat-session") || makeSession();
     const initialToken = new URL(window.location.href).searchParams.get("token") || sessionStore.getItem("openclaw-webchat-auth-token") || "";
@@ -1626,31 +2221,34 @@
     state.transcriptLanguage = savedLanguage || (((navigator.language || "").toLowerCase().startsWith("zh")) ? "zh" : "auto");
     state.autoSend = localStorage.getItem("openclaw-webchat-auto-send") === "1";
     state.autoTts = localStorage.getItem("openclaw-webchat-auto-tts") !== "0";
+    state.llmBackend = localStorage.getItem("openclaw-webchat-llm-backend") === "remote" ? "remote" : "local";
     state.ttsMode = localStorage.getItem("openclaw-webchat-tts-mode") || "api";
     state.ttsVoice = localStorage.getItem("openclaw-webchat-tts-voice") || "zh-CN-XiaoxiaoNeural";
+    state.voiceInputMode = localStorage.getItem("openclaw-webchat-voice-input-mode") || "ptt";
     state.wakeEnabled = true;
     const storedWakePhrase = localStorage.getItem("openclaw-webchat-wake-phrase") || "";
     state.wakePhrase = (!storedWakePhrase || storedWakePhrase === "hey robot" || storedWakePhrase === "机器人你好") ? "你好" : storedWakePhrase;
     state.wakeSupported = !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
     state.clientId = localStorage.getItem("openclaw-webchat-client-id") || makeId("client");
     state.selectedDeviceId = sessionStore.getItem("openclaw-webchat-mic-device") || "";
+    uiMode.init();
     localStorage.setItem("openclaw-webchat-client-id", state.clientId);
     languageSelectEl.value = state.transcriptLanguage;
     autoSendToggleEl.checked = state.autoSend;
+    updateLlmBackendUi();
     ttsModeSelectEl.value = state.ttsMode;
     ttsVoiceSelectEl.value = state.ttsVoice;
     autoTtsToggleEl.checked = state.autoTts;
     wakeToggleEl.checked = state.wakeEnabled;
     wakePhraseInputEl.value = state.wakePhrase;
-    speakerMatchModeSelectEl.value = state.speakerMatchMode === "current" ? "current" : "all";
     tokenInputEl.value = initialToken;
     renderInputLevel();
+    applyVoiceInputMode(state.voiceInputMode);
+    refreshSendButtonText();
     updateAuthUi();
-    updateFastModeUi();
     updateWakeUi();
-    updateSpeakerUi();
-    renderSpeakerEnrollModal();
     refreshMicDevices();
+    renderQuickReplies();
     setSession(initial);
     resetProcess("页面已就绪");
     logProcess("页面已就绪", `clientId=${state.clientId}\nsession=${initial}\nlanguage=${state.transcriptLanguage}\nautoSend=${state.autoSend}\nautoTts=${state.autoTts}\nttsVoice=${state.ttsVoice}`);
@@ -1665,4 +2263,80 @@
         scheduleWakeResume(400);
       }
     });
+
+    // 加载声纹采集组件
+    (async () => {
+      try {
+        // 先初始化 state 中的 voiceprint 属性
+        state.voiceprintRecording = false;
+        state.voiceprintMediaChunks = [];
+        state.voiceprintStartTime = 0;
+        state.voiceprintMediaRecorder = null;
+        state.voiceprintCurrentStep = 0;
+        state.voiceprintSegments = [];
+        state.voiceprintPhrases = [
+          "你好，我是语音助手",
+          "请识别我的声纹特征",
+          "谢谢你的配合"
+        ];
+        state.voiceprintRecordingTime = 0;
+        state.voiceprintRecordingTimer = null;
+        state.voiceprintCurrentSegmentBlob = null;
+
+        const response = await fetch("/static/pages/voiceprint/voiceprint-modal.html");
+        const html = await response.text();
+        const placeholder = document.getElementById("voiceprintModalPlaceholder");
+        if (placeholder) {
+          placeholder.innerHTML = html;
+        }
+        
+        // 给浏览器时间来渲染 HTML
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // 动态导入 voiceprint 模块
+        const { initVoiceprintModule } = await import("/static/pages/voiceprint/voiceprint.js");
+        
+        // 准备 DOM 元素引用
+        const voiceprintDom = {
+          voiceprintBtn: $("voiceprintBtn"),
+          voiceprintModalEl: $("voiceprintModal"),
+          voiceprintCloseBtnEl: $("voiceprintCloseBtn"),
+          voiceprintProgressFillEl: $("voiceprintProgressFill"),
+          voiceprintProgressTextEl: $("voiceprintProgressText"),
+          voiceprintPromptEl: $("voiceprintPrompt"),
+          voiceprintPhraseEl: $("voiceprintPhrase"),
+          voiceprintHintEl: $("voiceprintHint"),
+          voiceprintRecordBtnEl: $("voiceprintRecordBtn"),
+          voiceprintStatusEl: $("voiceprintStatus"),
+          voiceprintTimerEl: $("voiceprintTimer"),
+          voiceprintReviewContainerEl: $("voiceprintReviewContainer"),
+          voiceprintReviewAudioEl: $("voiceprintReviewAudio"),
+          voiceprintSegmentConfirmBtnEl: $("voiceprintSegmentConfirmBtn"),
+          voiceprintSegmentRetryBtnEl: $("voiceprintSegmentRetryBtn"),
+          voiceprintCollectionCompleteEl: $("voiceprintCollectionComplete"),
+          voiceprintCompleteDetailEl: $("voiceprintCompleteDetail"),
+          voiceprintFinalConfirmBtnEl: $("voiceprintFinalConfirmBtn"),
+          voiceprintStartOverBtnEl: $("voiceprintStartOverBtn"),
+        };
+        
+        // 检查关键 DOM 元素是否存在
+        if (!voiceprintDom.voiceprintModalEl) {
+          console.error("声纹采集 HTML 加载失败或元素不存在");
+          return;
+        }
+        
+        // 传入辅助函数
+        state.startLevelMonitor = startLevelMonitor;
+        state.statusEl = statusEl;
+        
+        // 初始化模块并设置事件监听
+        const voiceprintModule = initVoiceprintModule(state, voiceprintDom);
+        voiceprintModule.setupEventListeners();
+        
+        console.log("声纹采集组件加载成功");
+        
+      } catch (err) {
+        console.error("加载声纹采集组件失败:", err);
+      }
+    })();
   
