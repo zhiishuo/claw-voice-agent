@@ -1647,6 +1647,15 @@ def save_messages(session, messages):
     session_file(session).write_text(json.dumps(messages, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 # 加一条消息并保存。
+def payload_bool(payload, name, default=True):
+    value = payload.get(name, default) if isinstance(payload, dict) else default
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() not in {"0", "false", "no", "off"}
+
+
 def append_message(session, role, content):
     with LOCK:
         messages = load_messages(session)
@@ -1655,7 +1664,13 @@ def append_message(session, role, content):
         return messages
 
 
-def build_knowledge_augmented_message(message):
+def build_knowledge_augmented_message(message, knowledge_enabled=True):
+    if not knowledge_enabled:
+        return message, {
+            "enabled": False,
+            "disabled_by_request": True,
+            "citations": [],
+        }
     kb_context, kb_citations = KNOWLEDGE_SERVICE.build_prompt_context(message)
     if not kb_context:
         return message, {"enabled": bool(KNOWLEDGE_SERVICE.status().get("enabled")), "citations": []}
@@ -1668,8 +1683,8 @@ def build_knowledge_augmented_message(message):
     return augmented, {"enabled": True, "citations": kb_citations}
 
 
-def run_openclaw(session, message):
-    message, knowledge_meta = build_knowledge_augmented_message(message)
+def run_openclaw(session, message, knowledge_enabled=True):
+    message, knowledge_meta = build_knowledge_augmented_message(message, knowledge_enabled=knowledge_enabled)
     env = os.environ.copy()
     env.setdefault("VLLM_API_KEY", "vllm-local")
     cmd = [OPENCLAW_BIN, "agent", "--agent", AGENT_ID, "--session-id", session, "--message", message, "--timeout", "180", "--json"]
@@ -2092,8 +2107,9 @@ class Handler(BaseHTTPRequestHandler):
                 message = str(payload.get("message") or "").strip()
                 if not message:
                     raise RuntimeError("message is required")
+                knowledge_enabled = payload_bool(payload, "knowledgeEnabled", True)
                 append_message(session, "user", message)
-                reply, meta = run_openclaw(session, message)
+                reply, meta = run_openclaw(session, message, knowledge_enabled=knowledge_enabled)
                 messages = append_message(session, "assistant", reply)
                 log_event("chat_response", session=session, runId=meta.get("runId"), replyChars=len(reply), clientId=client_id, requestId=request_id)
                 json_response(self, HTTPStatus.OK, {

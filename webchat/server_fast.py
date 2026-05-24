@@ -1655,6 +1655,15 @@ def save_messages(session, messages):
     session_file(session).write_text(json.dumps(messages, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 # 加一条消息并保存。
+def payload_bool(payload, name, default=True):
+    value = payload.get(name, default) if isinstance(payload, dict) else default
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() not in {"0", "false", "no", "off"}
+
+
 def append_message(session, role, content):
     with LOCK:
         messages = load_messages(session)
@@ -1663,7 +1672,13 @@ def append_message(session, role, content):
         return messages
 
 
-def build_knowledge_augmented_message(message):
+def build_knowledge_augmented_message(message, knowledge_enabled=True):
+    if not knowledge_enabled:
+        return message, {
+            "enabled": False,
+            "disabled_by_request": True,
+            "citations": [],
+        }
     kb_context, kb_citations = KNOWLEDGE_SERVICE.build_prompt_context(message)
     if not kb_context:
         return message, {"enabled": bool(KNOWLEDGE_SERVICE.status().get("enabled")), "citations": []}
@@ -1676,8 +1691,8 @@ def build_knowledge_augmented_message(message):
     return augmented, {"enabled": True, "citations": kb_citations}
 
 
-def run_openclaw(session, message):
-    message, knowledge_meta = build_knowledge_augmented_message(message)
+def run_openclaw(session, message, knowledge_enabled=True):
+    message, knowledge_meta = build_knowledge_augmented_message(message, knowledge_enabled=knowledge_enabled)
     env = os.environ.copy()
     env.setdefault("VLLM_API_KEY", "vllm-local")
     cmd = [OPENCLAW_BIN, "agent", "--agent", AGENT_ID, "--session-id", session, "--message", message, "--timeout", "180", "--json"]
@@ -1691,9 +1706,12 @@ def run_openclaw(session, message):
     return reply.strip(), parsed
 
 
-def run_fast_llm(session, message):
+def run_fast_llm(session, message, knowledge_enabled=True):
     history = load_messages(session)[-(FAST_HISTORY_TURNS * 2):] if FAST_HISTORY_TURNS > 0 else []
-    kb_context, kb_citations = KNOWLEDGE_SERVICE.build_prompt_context(message)
+    if knowledge_enabled:
+        kb_context, kb_citations = KNOWLEDGE_SERVICE.build_prompt_context(message)
+    else:
+        kb_context, kb_citations = "", []
     messages = [{
         "role": "system",
         "content": (
@@ -1747,16 +1765,17 @@ def run_fast_llm(session, message):
         "elapsedMs": elapsed_ms,
         "usage": data.get("usage"),
         "knowledge": {
-            "enabled": bool(KNOWLEDGE_SERVICE.status().get("enabled")),
+            "enabled": bool(KNOWLEDGE_SERVICE.status().get("enabled")) and bool(knowledge_enabled),
+            "disabled_by_request": not bool(knowledge_enabled),
             "citations": kb_citations,
         },
     }
 
 
-def run_chat_backend(session, message):
+def run_chat_backend(session, message, knowledge_enabled=True):
     if FAST_MODE:
-        return run_fast_llm(session, message)
-    return run_openclaw(session, message)
+        return run_fast_llm(session, message, knowledge_enabled=knowledge_enabled)
+    return run_openclaw(session, message, knowledge_enabled=knowledge_enabled)
 
 
 def ext_for_content_type(content_type, filename):
@@ -2234,9 +2253,10 @@ class Handler(BaseHTTPRequestHandler):
                 message = str(payload.get("message") or "").strip()
                 if not message:
                     raise RuntimeError("message is required")
+                knowledge_enabled = payload_bool(payload, "knowledgeEnabled", True)
                 append_message(session, "user", message)
                 chat_start = time.perf_counter()
-                reply, meta = run_chat_backend(session, message)
+                reply, meta = run_chat_backend(session, message, knowledge_enabled=knowledge_enabled)
                 chat_elapsed_ms = int((time.perf_counter() - chat_start) * 1000)
                 messages = append_message(session, "assistant", reply)
                 log_event("chat_response", session=session, mode=meta.get("mode"), runId=meta.get("runId"), replyChars=len(reply), elapsedMs=chat_elapsed_ms, clientId=client_id, requestId=request_id)

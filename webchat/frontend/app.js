@@ -42,6 +42,7 @@
       ttsVoice: "zh-CN-XiaoxiaoNeural",
       ttsMode: "api",
       llmBackend: "local",
+      knowledgeEnabled: true,
       voiceInputMode: "ptt",
       authToken: "",
       authenticated: false,
@@ -144,6 +145,7 @@
     const ttsVoiceSelectEl = $("ttsVoiceSelect");
     const ttsModeSelectEl = $("ttsModeSelect");
     const autoTtsToggleEl = $("autoTtsToggle");
+    const knowledgeToggleEl = $("knowledgeToggle");
     const captureProofEl = $("captureProof");
     const captureProofMetaEl = $("captureProofMeta");
     const captureProofAudioEl = $("captureProofAudio");
@@ -1640,7 +1642,11 @@
             "X-Request-Id": requestId,
             "X-Session-Key": state.session,
           },
-          body: JSON.stringify({ session: state.session, message: text }),
+          body: JSON.stringify({
+            session: state.session,
+            message: text,
+            knowledgeEnabled: state.knowledgeEnabled,
+          }),
         });
         await ensureVisibleStep("claw", 900);
         if (pendingMessageEl && pendingMessageEl.isConnected) pendingMessageEl.remove();
@@ -2127,6 +2133,13 @@
         logProcess("切换对话模型来源", `${state.llmBackend}\nclientId=${state.clientId}`);
       });
     }
+    if (knowledgeToggleEl) {
+      knowledgeToggleEl.addEventListener("change", () => {
+        state.knowledgeEnabled = knowledgeToggleEl.value !== "false";
+        localStorage.setItem("openclaw-webchat-knowledge-enabled", state.knowledgeEnabled ? "1" : "0");
+        logProcess("切换知识库", `${state.knowledgeEnabled ? "enabled" : "disabled"}\nclientId=${state.clientId}`);
+      });
+    }
     ttsModeSelectEl.addEventListener("change", () => {
       state.ttsMode = ttsModeSelectEl.value || "api";
       localStorage.setItem("openclaw-webchat-tts-mode", state.ttsMode);
@@ -2225,6 +2238,7 @@
     state.ttsMode = localStorage.getItem("openclaw-webchat-tts-mode") || "api";
     state.ttsVoice = localStorage.getItem("openclaw-webchat-tts-voice") || "zh-CN-XiaoxiaoNeural";
     state.voiceInputMode = localStorage.getItem("openclaw-webchat-voice-input-mode") || "ptt";
+    state.knowledgeEnabled = localStorage.getItem("openclaw-webchat-knowledge-enabled") !== "0";
     state.wakeEnabled = true;
     const storedWakePhrase = localStorage.getItem("openclaw-webchat-wake-phrase") || "";
     state.wakePhrase = (!storedWakePhrase || storedWakePhrase === "hey robot" || storedWakePhrase === "机器人你好") ? "你好" : storedWakePhrase;
@@ -2239,6 +2253,7 @@
     ttsModeSelectEl.value = state.ttsMode;
     ttsVoiceSelectEl.value = state.ttsVoice;
     autoTtsToggleEl.checked = state.autoTts;
+    if (knowledgeToggleEl) knowledgeToggleEl.value = state.knowledgeEnabled ? "true" : "false";
     wakeToggleEl.checked = state.wakeEnabled;
     wakePhraseInputEl.value = state.wakePhrase;
     tokenInputEl.value = initialToken;
