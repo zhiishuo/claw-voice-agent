@@ -1,0 +1,11 @@
+# Core numeric/audio dependencies used by existing services.
+numpy
+soundfile
+sherpa-onnx
+
+# Knowledge base construction and retrieval.
+sentence-transformers
+faiss-cpu
+pypdf
+python-docx
+openpyxl

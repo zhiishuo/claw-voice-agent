@@ -22,7 +22,7 @@ OPENCLAW_HOME = pathlib.Path(
 )
 OPENCLAW_PYTHON = os.environ.get("OPENCLAW_PYTHON", sys.executable)
 COSYVOICE_PYDEPS = os.environ.get("COSYVOICE_PYDEPS", str(OPENCLAW_HOME / "cosyvoice-pydeps"))
-PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[2]
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -34,7 +34,7 @@ except ModuleNotFoundError:
         sys.path.insert(0, str(SERVICES_DIR))
     from speaker.speaker_verify import SpeakerVerifier
 
-FRONTEND_DIR = pathlib.Path(os.environ.get("OPENCLAW_WEBCHAT_FRONTEND_DIR", str(PROJECT_ROOT / "frontend")))
+FRONTEND_DIR = pathlib.Path(os.environ.get("OPENCLAW_WEBCHAT_FRONTEND_DIR", str(PROJECT_ROOT / "webchat/frontend")))
 
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("OPENCLAW_WEBCHAT_PORT", "18889"))
@@ -55,6 +55,24 @@ TLS_CERT_PATH = os.environ.get("OPENCLAW_WEBCHAT_TLS_CERT", "").strip()
 TLS_KEY_PATH = os.environ.get("OPENCLAW_WEBCHAT_TLS_KEY", "").strip()
 LOCK = threading.Lock()
 SPEAKER_VERIFIER = SpeakerVerifier()
+
+try:
+    from knowledge_service import KNOWLEDGE_SERVICE
+except Exception as exc:
+    class _UnavailableKnowledgeService:
+        def __init__(self, error):
+            self._error = str(error)
+
+        def status(self):
+            return {"enabled": False, "loaded": False, "error": self._error}
+
+        def retrieve(self, query, top_k=None, mode=None):
+            return []
+
+        def build_prompt_context(self, query):
+            return "", []
+
+    KNOWLEDGE_SERVICE = _UnavailableKnowledgeService(exc)
 
 # 把事件写到日志文件，也打印到 stdout。前端的“最近动作”和唤醒调试，很多都依赖这个日志。
 def log_event(event, **fields):
@@ -1637,7 +1655,21 @@ def append_message(session, role, content):
         return messages
 
 
+def build_knowledge_augmented_message(message):
+    kb_context, kb_citations = KNOWLEDGE_SERVICE.build_prompt_context(message)
+    if not kb_context:
+        return message, {"enabled": bool(KNOWLEDGE_SERVICE.status().get("enabled")), "citations": []}
+    augmented = (
+        f"{message}\n\n"
+        "[Knowledge Base Evidence]\n"
+        f"{kb_context}\n\n"
+        "Please answer using the evidence above when it is relevant, and mention the source briefly."
+    )
+    return augmented, {"enabled": True, "citations": kb_citations}
+
+
 def run_openclaw(session, message):
+    message, knowledge_meta = build_knowledge_augmented_message(message)
     env = os.environ.copy()
     env.setdefault("VLLM_API_KEY", "vllm-local")
     cmd = [OPENCLAW_BIN, "agent", "--agent", AGENT_ID, "--session-id", session, "--message", message, "--timeout", "180", "--json"]
@@ -1647,6 +1679,7 @@ def run_openclaw(session, message):
     parsed = json.loads(proc.stdout)
     payloads = (((parsed.get("result") or {}).get("payloads")) or [])
     reply = "\n\n".join(str(p.get("text", "")).strip() for p in payloads if isinstance(p, dict) and p.get("text")) or "[empty reply]"
+    parsed["knowledge"] = knowledge_meta
     return reply.strip(), parsed
 
 
@@ -1938,6 +1971,9 @@ class Handler(BaseHTTPRequestHandler):
             speaker_id = (params.get("speaker_id") or [SPEAKER_VERIFIER.default_speaker_id])[0]
             json_response(self, HTTPStatus.OK, SPEAKER_VERIFIER.status(speaker_id))
             return
+        if parsed.path == "/api/knowledge/status":
+            json_response(self, HTTPStatus.OK, {"ok": True, "knowledge": KNOWLEDGE_SERVICE.status()})
+            return
         if parsed.path.startswith("/api/uploads/"):
             name = pathlib.Path(urllib.parse.unquote(parsed.path.split("/api/uploads/", 1)[1])).name
             path = UPLOAD_DIR / name
@@ -1988,6 +2024,26 @@ class Handler(BaseHTTPRequestHandler):
             client_id = self.headers.get("X-Client-Id", "")
             request_id = self.headers.get("X-Request-Id", "")
             session_header = self.headers.get("X-Session-Key", "")
+            if parsed.path == "/api/knowledge/search":
+                payload = json.loads(raw.decode("utf-8") if raw else "{}")
+                query = str(payload.get("query") or payload.get("message") or "").strip()
+                mode = str(payload.get("mode") or "").strip() or None
+                top_k = payload.get("top_k") or payload.get("topK")
+                try:
+                    top_k = int(top_k) if top_k is not None else None
+                except (TypeError, ValueError):
+                    top_k = None
+                if not query:
+                    json_response(self, HTTPStatus.BAD_REQUEST, {"ok": False, "error": "query is required"})
+                    return
+                results = KNOWLEDGE_SERVICE.retrieve(query, top_k=top_k, mode=mode)
+                json_response(self, HTTPStatus.OK, {
+                    "ok": True,
+                    "query": query,
+                    "knowledge": KNOWLEDGE_SERVICE.status(),
+                    "results": results,
+                })
+                return
             if parsed.path in ("/api/speaker/enroll", "/api/speaker/verify"):
                 content_type = self.headers.get("Content-Type")
                 filename = self.headers.get("X-Filename", "speaker.wav")
@@ -2027,6 +2083,7 @@ class Handler(BaseHTTPRequestHandler):
                     "reply": reply,
                     "messages": messages,
                     "runId": meta.get("runId"),
+                    "meta": meta,
                 })
                 return
             if parsed.path == "/api/transcribe":

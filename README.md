@@ -53,11 +53,13 @@
 
 ```text
 frontend/
-  -> services/webchat/server.py
+  -> webchat/server.py
   -> /api/wake-check
   -> /api/transcribe
   -> /api/chat
   -> /api/tts
+  -> /api/knowledge/status
+  -> /api/knowledge/search
 
 /api/wake-check
   -> sherpa-kws
@@ -71,10 +73,58 @@ frontend/
   -> localqwen
   -> vLLM
   -> Qwen2.5-7B-Instruct
+  -> optional knowledge_base RAG
 
 /api/tts
   -> CosyVoice-300M-SFT
   -> or Microsoft edge-tts
+```
+
+## 知识库 / RAG
+
+本项目已接入 `knowledge_base/` 模块，支持 PDF、DOCX、XLSX、TXT、CSV、MD、JSON、JSONL 等资料构建 FAISS 向量索引和关键词索引。
+
+构建本地知识库：
+
+```bash
+python knowledge_base/build_kb.py \
+  --source examples/knowledge_base_docs \
+  --output .openclaw-kb
+```
+
+测试检索：
+
+```bash
+python knowledge_base/test_retrieval.py \
+  "航空器移交前管制员需要确认哪些信息？" \
+  --output .openclaw-kb \
+  --mode hybrid
+```
+
+WebChat 默认不启用知识库增强。启用后，`/api/chat` 会先执行混合检索，并把候选证据注入到 LLM prompt 中：
+
+```bash
+export OPENCLAW_KB_ENABLED=true
+export OPENCLAW_KB_OUTPUT_DIR=.openclaw-kb
+export OPENCLAW_KB_EMBEDDING_MODEL=shibing624/text2vec-base-chinese
+export OPENCLAW_KB_RETRIEVAL_MODE=hybrid
+```
+
+独立检索接口：
+
+```text
+GET  /api/knowledge/status
+POST /api/knowledge/search
+```
+
+`/api/knowledge/search` 请求体示例：
+
+```json
+{
+  "query": "Which airport has the ident KJFK?",
+  "mode": "hybrid",
+  "top_k": 5
+}
 ```
 
 ## 代码划分
