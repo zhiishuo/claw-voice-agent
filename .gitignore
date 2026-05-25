@@ -37,4 +37,4 @@ pytest_cache/
 *.xlsx
 *.csv
 
-.openclaw-kb_moke
+.kb

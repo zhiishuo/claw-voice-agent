@@ -16,13 +16,13 @@
 $env:OPENCLAW_WEBCHAT_PORT="18890"
 
 $env:OPENCLAW_KB_ENABLED="true"
-$env:OPENCLAW_KB_OUTPUT_DIR=".openclaw-kb_moke"
+$env:OPENCLAW_KB_OUTPUT_DIR=".kb"
 $env:OPENCLAW_KB_EMBEDDING_MODEL="shibing624/text2vec-base-chinese"
 $env:OPENCLAW_KB_RETRIEVAL_MODE="hybrid"
 
 $env:OPENCLAW_FAST_LLM_URL="https://api.siliconflow.cn/v1/chat/completions" 
 $env:OPENCLAW_FAST_LLM_MODEL="Qwen/Qwen2.5-7B-Instruct"
-$env:OPENCLAW_FAST_LLM_API_KEY=""
+$env:OPENCLAW_FAST_LLM_API_KEY="<your-api-key>"
 $env:OPENCLAW_FAST_LLM_MAX_TOKENS="512"
 $env:OPENCLAW_FAST_LLM_TIMEOUT="30"
 
@@ -81,8 +81,11 @@ frontend/
 ```bash
 python knowledge_base/build_kb.py \
   --source examples/knowledge_base_docs \
-  --output .openclaw-kb
+  --output .openclaw-kb \
+  --visualization-method pca
 ```
+
+构建完成后会同步生成 `visualization.json`，用于独立知识库测试页展示全库向量降维图。默认使用 PCA，速度快且不需要额外依赖；如果服务器已安装 `umap-learn`，也可以改用 `--visualization-method umap` 获得更明显的聚类效果。
 
 测试检索：
 
@@ -106,6 +109,7 @@ export OPENCLAW_KB_RETRIEVAL_MODE=hybrid
 
 ```text
 GET  /api/knowledge/status
+GET  /api/knowledge/visualization
 POST /api/knowledge/search
 ```
 

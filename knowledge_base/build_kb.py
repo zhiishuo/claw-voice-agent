@@ -15,6 +15,7 @@ from knowledge_base.keyword_index import KeywordIndex
 from knowledge_base.text_cleaner import clean_text
 from knowledge_base.text_splitter import split_documents
 from knowledge_base.vector_store import FaissVectorStore
+from knowledge_base.visualization import build_visualization
 
 
 def build_knowledge_base(args: argparse.Namespace) -> None:
@@ -42,6 +43,7 @@ def build_knowledge_base(args: argparse.Namespace) -> None:
     store.build(vectors, chunks)
 
     KeywordIndex(config.keyword_index_path).build(chunks)
+    visualization = build_visualization(vectors, chunks, config.visualization_path, method=args.visualization_method)
     manifest_rows = _write_manifest(config.manifest_path, config.originals_dir, documents)
 
     print("Knowledge base built successfully.")
@@ -53,6 +55,8 @@ def build_knowledge_base(args: argparse.Namespace) -> None:
     print(f"index_path: {config.index_path}")
     print(f"metadata_path: {config.metadata_path}")
     print(f"keyword_index_path: {config.keyword_index_path}")
+    print(f"visualization_path: {config.visualization_path}")
+    print(f"visualization_method: {visualization.get('method')}")
     print(f"manifest_path: {config.manifest_path}")
     print(f"originals_dir: {config.originals_dir}")
 
@@ -104,6 +108,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--chunk-size", type=int, default=None, help="Maximum characters per chunk.")
     parser.add_argument("--chunk-overlap", type=int, default=None, help="Overlapped characters between chunks.")
     parser.add_argument("--batch-size", type=int, default=None, help="Embedding batch size.")
+    parser.add_argument(
+        "--visualization-method",
+        choices=("pca", "umap", "none"),
+        default="pca",
+        help="2D visualization method for the whole knowledge base. Use 'none' to skip.",
+    )
     return parser.parse_args()
 
 

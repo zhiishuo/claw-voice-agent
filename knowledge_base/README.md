@@ -35,8 +35,13 @@ This is the default local setup. It is suitable for development on a normal PC.
 ```powershell
 .\.venv\Scripts\python.exe knowledge_base\build_kb.py `
   --source examples\knowledge_base_docs `
-  --output .openclaw-kb
+  --output .kb `
+  --visualization-method pca
 ```
+
+The build also writes `visualization.json` for the WebChat knowledge-base test page. The default
+`pca` method is fast and requires no extra dependency. For a more cluster-like map on a server,
+install `umap-learn` and build with `--visualization-method umap`.
 
 Test retrieval with the same default model:
 
@@ -56,7 +61,8 @@ server model cache.
 .\.venv\Scripts\python.exe knowledge_base\build_kb.py `
   --source examples\knowledge_base_docs `
   --output .openclaw-kb-bge-m3 `
-  --model BAAI/bge-m3
+  --model BAAI/bge-m3 `
+  --visualization-method pca
 ```
 
 Test retrieval with the same BGE-M3 model:
@@ -93,6 +99,7 @@ artifacts:
 | --- | --- |
 | `kb.faiss` | Dense vector index for semantic retrieval. |
 | `keyword_index.json` | Keyword/BM25-style index for terms, codes, regulation numbers, airport names, and table fields. |
+| `visualization.json` | 2D PCA/UMAP coordinates for whole-knowledge-base visualization in WebChat. |
 | `metadata.jsonl` | Chunk text plus source file, checksum, section, page, sheet, row, chunk type, and knowledge unit metadata. |
 | `manifest.jsonl` | File-level ingestion manifest with filename, file type, SHA-256 checksum, file size, ingest time, and original copy path. |
 | `originals/` | Preserved copies of source files for version tracking and result verification. |

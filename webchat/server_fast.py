@@ -2160,6 +2160,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/knowledge/status":
             json_response(self, HTTPStatus.OK, {"ok": True, "knowledge": KNOWLEDGE_SERVICE.status()})
             return
+        if parsed.path == "/api/knowledge/visualization":
+            json_response(self, HTTPStatus.OK, {"ok": True, "knowledge": KNOWLEDGE_SERVICE.status(), "visualization": KNOWLEDGE_SERVICE.visualization()})
+            return
         if parsed.path.startswith("/api/uploads/"):
             name = pathlib.Path(urllib.parse.unquote(parsed.path.split("/api/uploads/", 1)[1])).name
             path = UPLOAD_DIR / name

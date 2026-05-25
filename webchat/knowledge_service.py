@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import os
 import pathlib
 import sys
@@ -126,6 +127,29 @@ class KnowledgeService:
                 lines.append(f"[{index}] source={source}")
             lines.append(preview)
         return "\n".join(lines), citations
+
+    def visualization(self):
+        if not self.enabled:
+            return {"available": False, "points": [], "error": "knowledge base is disabled"}
+        try:
+            from knowledge_base.config import get_config
+
+            config = get_config(output_dir=self.output_dir or None, embedding_model=self.model)
+            path = config.visualization_path
+            if not path.exists():
+                return {
+                    "available": False,
+                    "points": [],
+                    "path": str(path),
+                    "error": "visualization file not found; rebuild the knowledge base",
+                }
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["available"] = True
+            payload["path"] = str(path)
+            return payload
+        except Exception as exc:
+            self._error = str(exc)
+            return {"available": False, "points": [], "error": str(exc)}
 
     def _ensure_loaded(self):
         if self._retriever is not None and self._embedder is not None:

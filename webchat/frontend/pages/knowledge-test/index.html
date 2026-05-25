@@ -43,10 +43,17 @@
 
     <section class="kb-card">
       <div class="kb-results-head">
-        <h2>检索结果</h2>
+        <div>
+          <h2>检索结果</h2>
+          <div class="kb-view-tabs" role="tablist" aria-label="检索结果视图">
+            <button class="kb-view-tab active" type="button" data-result-view="list">检索结果</button>
+            <button class="kb-view-tab" type="button" data-result-view="visual">检索结果可视化</button>
+          </div>
+        </div>
         <span id="resultMeta">暂无结果</span>
       </div>
       <div id="resultList" class="kb-results"></div>
+      <div id="visualizationPanel" class="kb-visual hidden"></div>
     </section>
   </main>
 
