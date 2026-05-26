@@ -1,0 +1,45 @@
+[Unit]
+Description=OpenClaw Voice Web Chat Fast HTTPS
+After=network-online.target openclaw-webchat-fast.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/home/aa-3090/.openclaw/venvs/webchat-campplus/bin/python /home/aa-3090/.openclaw/webchat/server_fast.py
+Restart=no
+Environment=OPENCLAW_WEBCHAT_FAST_MODE=1
+Environment=OPENCLAW_WEBCHAT_PORT=18890
+Environment=OPENCLAW_WEBCHAT_AGENT=localqwen
+Environment=OPENCLAW_WEBCHAT_FRONTEND_DIR=/home/aa-3090/.openclaw/webchat/frontend
+Environment=OPENCLAW_WEBCHAT_DATA=/home/aa-3090/.openclaw/webchat-fast/data
+Environment=OPENCLAW_WEBCHAT_UPLOADS=/home/aa-3090/.openclaw/webchat-fast/uploads
+Environment=OPENCLAW_WEBCHAT_TTS=/home/aa-3090/.openclaw/webchat-fast/tts
+Environment=OPENCLAW_WEBCHAT_LOG=/home/aa-3090/.openclaw/webchat-fast/debug.log
+Environment=OPENCLAW_WEBCHAT_TLS_CERT=/home/aa-3090/.openclaw/webchat/certs/webchat.crt
+Environment=OPENCLAW_WEBCHAT_TLS_KEY=/home/aa-3090/.openclaw/webchat/Environment=OPENCLAW_WEBCHAT_TOKEN=test123
+Environment=OPENCLAW_BIN=/home/aa-3090/.openclaw/bin/openclaw
+Environment=FW_WHISPER_BIN=/home/aa-3090/.openclaw/bin/fw-whisper
+Environment=OPENCLAW_KB_ENABLED=true
+Environment=OPENCLAW_KB_OUTPUT_DIR=/home/aa-3090/.openclaw/.kb
+Environment=OPENCLAW_KB_EMBEDDING_MODEL=BAAI/bge-m3
+Environment=OPENCLAW_KB_RETRIEVAL_MODE=hybrid
+Environment=OPENCLAW_FAST_LLM_URL=http://127.0.0.1:8000/v1/chat/completions
+Environment=OPENCLAW_FAST_LLM_MODEL=qwen-local
+Environment=OPENCLAW_FAST_LLM_API_KEY=vllm-local
+Environment=OPENCLAW_FAST_LLM_MAX_TOKENS=512
+Environment=OPENCLAW_FAST_LLM_TIMEOUT=60
+Environment=OPENCLAW_FAST_HISTORY_TURNS=3
+Environment=OPENCLAW_FAST_TTS_MAX_CHARS=0
+Environment=OPENCLAW_SPEAKER_VERIFY_ENABLED=true
+Environment=OPENCLAW_SPEAKER_THRESHOLD=0.55
+Environment=OPENCLAW_SPEAKER_ID=owner
+Environment=OPENCLAW_SPEAKER_PROFILE_DIR=/home/aa-3090/.openclaw/webchat/speakers
+Environment=OPENCLAW_SPEAKER_MODEL_ID=damo/speech_campplus_sv_zh-cn_16k-common
+Environment=OPENCLAW_SPEAKER_SAMPLE_STRATEGY=latest
+Environment=CUDA_VISIBLE_DEVICES=
+Environment=HF_ENDPOINT=https://hf-mirror.com
+Environment=HF_HUB_DISABLE_XET=1
+nment=OPENCLAW_WEBCHAT_TOKEN=test123
+
+[Install]
+WantedBy=default.target

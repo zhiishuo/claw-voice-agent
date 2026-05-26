@@ -63,6 +63,13 @@
     .quick-reply-chip:active {
       transform: translateY(1px);
     }
+    .quick-reply-chip--loading,
+    .quick-reply-chip:disabled {
+      cursor: progress;
+      opacity: .72;
+      color: var(--muted);
+      transform: none;
+    }
     .app { width:min(1380px, calc(100vw - 32px)); margin:0 auto; padding:24px 16px 36px; }
     .topbar { display:flex; gap:16px; align-items:flex-end; justify-content:space-between; margin-bottom:18px; flex-wrap:wrap; }
     .brand { display:flex; flex-direction:column; gap:6px; }

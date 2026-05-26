@@ -73,6 +73,7 @@ except Exception as exc:
             return "", []
 
     KNOWLEDGE_SERVICE = _UnavailableKnowledgeService(exc)
+from prompts import build_openclaw_user_message
 
 # 把事件写到日志文件，也打印到 stdout。前端的“最近动作”和唤醒调试，很多都依赖这个日志。
 def log_event(event, **fields):
@@ -1674,12 +1675,7 @@ def build_knowledge_augmented_message(message, knowledge_enabled=True):
     kb_context, kb_citations = KNOWLEDGE_SERVICE.build_prompt_context(message)
     if not kb_context:
         return message, {"enabled": bool(KNOWLEDGE_SERVICE.status().get("enabled")), "citations": []}
-    augmented = (
-        f"{message}\n\n"
-        "[Knowledge Base Evidence]\n"
-        f"{kb_context}\n\n"
-        "Please answer using the evidence above when it is relevant, and mention the source briefly."
-    )
+    augmented = build_openclaw_user_message(message, kb_context)
     return augmented, {"enabled": True, "citations": kb_citations}
 
 

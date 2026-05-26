@@ -81,6 +81,7 @@ except Exception as exc:
             return "", []
 
     KNOWLEDGE_SERVICE = _UnavailableKnowledgeService(exc)
+from prompts import build_fast_system_prompt, build_openclaw_user_message, build_suggestion_messages
 
 # 把事件写到日志文件，也打印到 stdout。前端的“最近动作”和唤醒调试，很多都依赖这个日志。
 def log_event(event, **fields):
@@ -1682,12 +1683,7 @@ def build_knowledge_augmented_message(message, knowledge_enabled=True):
     kb_context, kb_citations = KNOWLEDGE_SERVICE.build_prompt_context(message)
     if not kb_context:
         return message, {"enabled": bool(KNOWLEDGE_SERVICE.status().get("enabled")), "citations": []}
-    augmented = (
-        f"{message}\n\n"
-        "[Knowledge Base Evidence]\n"
-        f"{kb_context}\n\n"
-        "Please answer using the evidence above when it is relevant, and mention the source briefly."
-    )
+    augmented = build_openclaw_user_message(message, kb_context)
     return augmented, {"enabled": True, "citations": kb_citations}
 
 
@@ -1706,7 +1702,7 @@ def run_openclaw(session, message, knowledge_enabled=True):
     return reply.strip(), parsed
 
 
-def run_fast_llm(session, message, knowledge_enabled=True):
+def run_fast_llm_legacy_unused(session, message, knowledge_enabled=True):
     history = load_messages(session)[-(FAST_HISTORY_TURNS * 2):] if FAST_HISTORY_TURNS > 0 else []
     if knowledge_enabled:
         kb_context, kb_citations = KNOWLEDGE_SERVICE.build_prompt_context(message)
@@ -1769,6 +1765,139 @@ def run_fast_llm(session, message, knowledge_enabled=True):
             "disabled_by_request": not bool(knowledge_enabled),
             "citations": kb_citations,
         },
+    }
+
+
+def run_fast_llm(session, message, knowledge_enabled=True):
+    history = load_messages(session)[-(FAST_HISTORY_TURNS * 2):] if FAST_HISTORY_TURNS > 0 else []
+    if knowledge_enabled:
+        kb_context, kb_citations = KNOWLEDGE_SERVICE.build_prompt_context(message)
+    else:
+        kb_context, kb_citations = "", []
+
+    messages = [{
+        "role": "system",
+        "content": build_fast_system_prompt(kb_context),
+    }]
+    for item in history:
+        role = item.get("role")
+        content = str(item.get("content") or "").strip()
+        if role in {"user", "assistant"} and content:
+            messages.append({"role": role, "content": content[:500]})
+    messages.append({"role": "user", "content": message})
+
+    payload = {
+        "model": FAST_LLM_MODEL,
+        "messages": messages,
+        "temperature": 0.2,
+        "max_tokens": FAST_LLM_MAX_TOKENS,
+        "stream": False,
+    }
+    req = urllib.request.Request(
+        FAST_LLM_URL,
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {FAST_LLM_API_KEY}",
+        },
+        method="POST",
+    )
+    start = time.perf_counter()
+    with urllib.request.urlopen(req, timeout=FAST_LLM_TIMEOUT) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+    choice = (data.get("choices") or [{}])[0]
+    reply = str(((choice.get("message") or {}).get("content")) or "").strip()
+    if not reply:
+        reply = "[empty fast reply]"
+    return reply, {
+        "mode": "fast-direct-vllm",
+        "model": FAST_LLM_MODEL,
+        "elapsedMs": elapsed_ms,
+        "usage": data.get("usage"),
+        "knowledge": {
+            "enabled": bool(KNOWLEDGE_SERVICE.status().get("enabled")) and bool(knowledge_enabled),
+            "disabled_by_request": not bool(knowledge_enabled),
+            "citations": kb_citations,
+        },
+    }
+
+
+def parse_suggestion_items(content):
+    text = str(content or "").strip()
+    if not text:
+        return []
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s*```$", "", text).strip()
+    parsed = None
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        match = re.search(r"\[[\s\S]*\]", text)
+        if match:
+            try:
+                parsed = json.loads(match.group(0))
+            except Exception:
+                parsed = None
+    if isinstance(parsed, dict):
+        for key in ("suggestions", "questions", "items", "data"):
+            value = parsed.get(key)
+            if isinstance(value, list):
+                parsed = value
+                break
+    if not isinstance(parsed, list):
+        parsed = []
+        for line in re.split(r"[\r\n]+", text):
+            value = re.sub(r"^\s*(?:[-*]|\d+[.)、])\s*", "", line).strip()
+            value = value.strip(" \t\"'，,。；;")
+            if value:
+                parsed.append(value)
+    suggestions = []
+    seen = set()
+    for item in parsed:
+        value = str(item or "").strip()
+        value = re.sub(r"^\s*(?:[-*]|\d+[.)、])\s*", "", value).strip()
+        value = value.strip(" \t\"'，,。；;")
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        suggestions.append(value[:80])
+        if len(suggestions) >= 3:
+            break
+    return suggestions
+
+
+def generate_chat_suggestions(question, answer, citations):
+    messages = build_suggestion_messages(question, answer, citations)
+    payload = {
+        "model": FAST_LLM_MODEL,
+        "messages": messages,
+        "temperature": 0.4,
+        "max_tokens": min(max(FAST_LLM_MAX_TOKENS, 128), 512),
+        "stream": False,
+    }
+    req = urllib.request.Request(
+        FAST_LLM_URL,
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {FAST_LLM_API_KEY}",
+        },
+        method="POST",
+    )
+    start = time.perf_counter()
+    with urllib.request.urlopen(req, timeout=FAST_LLM_TIMEOUT) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+    choice = (data.get("choices") or [{}])[0]
+    content = str(((choice.get("message") or {}).get("content")) or "").strip()
+    return parse_suggestion_items(content), {
+        "mode": "fast-suggestions",
+        "model": FAST_LLM_MODEL,
+        "elapsedMs": elapsed_ms,
+        "usage": data.get("usage"),
+        "raw": content,
     }
 
 
@@ -2248,6 +2377,25 @@ class Handler(BaseHTTPRequestHandler):
                         log_event("speaker_verify", ok=result.get("ok"), matched=result.get("matched"), score=result.get("score"), speakerId=result.get("speaker_id"), clientId=client_id, requestId=request_id)
                 status = HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST
                 json_response(self, status, result)
+                return
+            if parsed.path == "/api/chat/suggestions":
+                payload = json.loads(raw.decode("utf-8") if raw else "{}")
+                session = sanitize_session(payload.get("session"))
+                question = str(payload.get("question") or "").strip()
+                answer = str(payload.get("answer") or "").strip()
+                citations = payload.get("citations") if isinstance(payload.get("citations"), list) else []
+                log_event("chat_suggestions_request", remote=self.client_address[0], bytes=len(raw), clientId=client_id, requestId=request_id, session=session, citations=len(citations))
+                if not question or not answer:
+                    json_response(self, HTTPStatus.OK, {"ok": True, "suggestions": [], "meta": {"reason": "missing_question_or_answer"}})
+                    return
+                suggestions, meta = generate_chat_suggestions(question, answer, citations)
+                log_event("chat_suggestions_response", session=session, count=len(suggestions), elapsedMs=meta.get("elapsedMs"), rawPreview=str(meta.get("raw") or "")[:300], clientId=client_id, requestId=request_id)
+                json_response(self, HTTPStatus.OK, {
+                    "ok": True,
+                    "session": session,
+                    "suggestions": suggestions,
+                    "meta": meta,
+                })
                 return
             if parsed.path == "/api/chat":
                 payload = json.loads(raw.decode("utf-8") if raw else "{}")

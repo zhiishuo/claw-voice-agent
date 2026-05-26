@@ -43,6 +43,9 @@
       ttsMode: "api",
       llmBackend: "local",
       knowledgeEnabled: true,
+      smartQuickReplies: [],
+      quickReplyRequestId: "",
+      quickRepliesLoading: false,
       voiceInputMode: "ptt",
       authToken: "",
       authenticated: false,
@@ -1653,6 +1656,18 @@
         const fallbackReply = (Array.isArray(data.messages) ? [...data.messages].reverse().find((item) => (item.role || "") === "assistant")?.content : "") || "";
         const assistantReply = (data.reply || fallbackReply || "").trim();
         const knowledgeCitations = Array.isArray(data?.meta?.knowledge?.citations) ? data.meta.knowledge.citations : [];
+        if (state.knowledgeEnabled && assistantReply && knowledgeCitations.length) {
+          void refreshSmartQuickReplies({
+            question: text,
+            answer: assistantReply,
+            citations: knowledgeCitations,
+            requestId,
+          });
+        } else {
+          state.smartQuickReplies = [];
+          state.quickRepliesLoading = false;
+          renderQuickReplies();
+        }
         if (!state.autoTts || !assistantReply) {
           addMessage("assistant", assistantReply || "[empty]", null, { citations: knowledgeCitations });
         }
@@ -1716,7 +1731,7 @@
         // 在对话框中显示音频
         if (data.audio?.url) {
           setStep("audio", "done", `语音生成完成\nrequestId=${requestId}`);
-          addMessage("assistant", "", data.audio.url || "/api/default-audio", {
+          addMessage("assistant", "", withTokenUrl(data.audio.url || "/api/default-audio"), {
             scrollBehavior: "smooth",
             transcriptText: text,
             citations: options.citations,
@@ -1730,7 +1745,7 @@
           });
         } else {
           setStep("audio", "done", `使用默认语音资源\nrequestId=${requestId}`);
-          addMessage("assistant", "", "/api/default-audio", {
+          addMessage("assistant", "", withTokenUrl("/api/default-audio"), {
             scrollBehavior: "smooth",
             transcriptText: text,
             citations: options.citations,
@@ -2137,6 +2152,11 @@
       knowledgeToggleEl.addEventListener("change", () => {
         state.knowledgeEnabled = knowledgeToggleEl.value !== "false";
         localStorage.setItem("openclaw-webchat-knowledge-enabled", state.knowledgeEnabled ? "1" : "0");
+        if (!state.knowledgeEnabled) {
+          state.smartQuickReplies = [];
+          state.quickRepliesLoading = false;
+          renderQuickReplies();
+        }
         logProcess("切换知识库", `${state.knowledgeEnabled ? "enabled" : "disabled"}\nclientId=${state.clientId}`);
       });
     }
@@ -2198,14 +2218,28 @@
       if (!quickRepliesEl) return;
       
       const wake = state.wakePhrase || "你好";
-      const replies = [
+      const defaultReplies = [
         `${wake}，塔台，南方8900请求起飞。`,
         `${wake}，进近，请确认当前跑道风向风速。`,
         `${wake}，请报告当前的离场航线。`,
         `${wake}，雷达确认，保持当前高度9000米。`
       ];
+      const smartReplies = state.knowledgeEnabled && Array.isArray(state.smartQuickReplies)
+        ? state.smartQuickReplies.filter(Boolean).slice(0, 3)
+        : [];
+      const replies = smartReplies.length ? smartReplies : defaultReplies;
       
       quickRepliesEl.innerHTML = "";
+      if (state.quickRepliesLoading) {
+        const loadingBtn = document.createElement("button");
+        loadingBtn.className = "quick-reply-chip quick-reply-chip--loading";
+        loadingBtn.textContent = "正在生成推荐对话...";
+        loadingBtn.type = "button";
+        loadingBtn.disabled = true;
+        quickRepliesEl.appendChild(loadingBtn);
+        updateQuickRepliesVisibility();
+        return;
+      }
       replies.forEach(text => {
         const btn = document.createElement("button");
         btn.className = "quick-reply-chip";
@@ -2218,6 +2252,44 @@
         quickRepliesEl.appendChild(btn);
       });
       updateQuickRepliesVisibility();
+    }
+
+    async function refreshSmartQuickReplies({ question, answer, citations, requestId }) {
+      if (!state.knowledgeEnabled || !Array.isArray(citations) || !citations.length) return;
+      const marker = requestId || makeId("suggest");
+      state.quickReplyRequestId = marker;
+      state.quickRepliesLoading = true;
+      state.smartQuickReplies = [];
+      renderQuickReplies();
+      try {
+        const data = await api("/api/chat/suggestions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Client-Id": state.clientId,
+            "X-Request-Id": marker,
+            "X-Session-Key": state.session,
+          },
+          body: JSON.stringify({
+            session: state.session,
+            question,
+            answer,
+            citations,
+          }),
+        });
+        if (state.quickReplyRequestId !== marker) return;
+        const suggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
+        state.smartQuickReplies = suggestions.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 3);
+        state.quickRepliesLoading = false;
+        renderQuickReplies();
+        logProcess("生成推荐对话", `${state.smartQuickReplies.length} 条\nrequestId=${marker}`);
+      } catch (err) {
+        if (state.quickReplyRequestId !== marker) return;
+        state.smartQuickReplies = [];
+        state.quickRepliesLoading = false;
+        renderQuickReplies();
+        logProcess("推荐对话生成失败", `${err.message}\nrequestId=${marker}`);
+      }
     }
 
     function updateLlmBackendUi() {

@@ -23,6 +23,7 @@ downloads/
 
 .openclaw-kb/
 .openclaw-kb-*/
+.openclaw-kb_moke/
 *.faiss
 *.npy
 
