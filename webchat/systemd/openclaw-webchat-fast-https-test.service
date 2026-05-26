@@ -16,7 +16,7 @@ Environment=OPENCLAW_WEBCHAT_UPLOADS=/home/aa-3090/.openclaw/webchat-fast/upload
 Environment=OPENCLAW_WEBCHAT_TTS=/home/aa-3090/.openclaw/webchat-fast/tts
 Environment=OPENCLAW_WEBCHAT_LOG=/home/aa-3090/.openclaw/webchat-fast/debug.log
 Environment=OPENCLAW_WEBCHAT_TLS_CERT=/home/aa-3090/.openclaw/webchat/certs/webchat.crt
-Environment=OPENCLAW_WEBCHAT_TLS_KEY=/home/aa-3090/.openclaw/webchat/Environment=OPENCLAW_WEBCHAT_TOKEN=test123
+Environment=OPENCLAW_WEBCHAT_TLS_KEY=/home/aa-3090/.openclaw/webchat/certs/webchat.key
 Environment=OPENCLAW_BIN=/home/aa-3090/.openclaw/bin/openclaw
 Environment=FW_WHISPER_BIN=/home/aa-3090/.openclaw/bin/fw-whisper
 Environment=OPENCLAW_KB_ENABLED=true
@@ -39,7 +39,7 @@ Environment=OPENCLAW_SPEAKER_SAMPLE_STRATEGY=latest
 Environment=CUDA_VISIBLE_DEVICES=
 Environment=HF_ENDPOINT=https://hf-mirror.com
 Environment=HF_HUB_DISABLE_XET=1
-nment=OPENCLAW_WEBCHAT_TOKEN=test123
+Environment=OPENCLAW_WEBCHAT_TOKEN=test123
 
 [Install]
 WantedBy=default.target
