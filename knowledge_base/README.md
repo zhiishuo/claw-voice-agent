@@ -60,9 +60,9 @@ server model cache.
 ```powershell
 .\.venv\Scripts\python.exe knowledge_base\build_kb.py `
   --source examples\knowledge_base_docs `
-  --output .openclaw-kb-bge-m3 `
+  --output .kb `
   --model BAAI/bge-m3 `
-  --visualization-method pca
+  --visualization-method umap
 ```
 
 Test retrieval with the same BGE-M3 model:

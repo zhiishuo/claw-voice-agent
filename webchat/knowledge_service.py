@@ -55,6 +55,8 @@ class KnowledgeService:
         self._retriever = None
         self._config = None
         self._error = None
+        self._visualization_cache = None
+        self._visualization_cache_key = None
 
     def status(self):
         return {
@@ -143,10 +145,18 @@ class KnowledgeService:
                     "path": str(path),
                     "error": "visualization file not found; rebuild the knowledge base",
                 }
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            payload["available"] = True
-            payload["path"] = str(path)
-            return payload
+            stat = path.stat()
+            cache_key = (str(path), stat.st_mtime_ns, stat.st_size)
+            with self._lock:
+                if self._visualization_cache is not None and self._visualization_cache_key == cache_key:
+                    return self._visualization_cache
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                payload["available"] = True
+                payload["path"] = str(path)
+                payload["cached"] = True
+                self._visualization_cache = payload
+                self._visualization_cache_key = cache_key
+                return payload
         except Exception as exc:
             self._error = str(exc)
             return {"available": False, "points": [], "error": str(exc)}

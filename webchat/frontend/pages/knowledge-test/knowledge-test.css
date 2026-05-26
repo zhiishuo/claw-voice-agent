@@ -415,6 +415,7 @@ textarea {
 }
 
 .kb-visual__global-pane {
+  position: relative;
   min-width: 0;
   overflow: auto;
   border-right: 1px solid #d8e3f3;
@@ -436,6 +437,23 @@ textarea {
   height: 520px;
 }
 
+.kb-visual__base-canvas {
+  display: block;
+  width: 100%;
+  min-width: 840px;
+  height: 520px;
+}
+
+.kb-visual__overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.kb-visual__overlay .kb-visual__hit-node {
+  pointer-events: auto;
+}
+
 .kb-visual__detail-pane svg {
   min-width: 0;
   height: 330px;
@@ -451,18 +469,23 @@ textarea {
 }
 
 .kb-visual__match-tether {
-  stroke: rgba(229, 72, 92, .62);
+  stroke: rgba(79, 124, 255, .46);
   stroke-width: 1.5;
   stroke-dasharray: 3 4;
   stroke-linecap: round;
 }
 
+.kb-visual__similarity-line {
+  stroke-linecap: round;
+  transition: stroke .18s ease, stroke-width .18s ease, opacity .18s ease;
+}
+
 .kb-visual__focus-ring {
-  fill: rgba(229, 72, 92, .08);
-  stroke: rgba(229, 72, 92, .78);
+  fill: rgba(79, 124, 255, .08);
+  stroke: rgba(79, 124, 255, .76);
   stroke-width: 3;
   stroke-dasharray: 8 7;
-  filter: drop-shadow(0 12px 20px rgba(229, 72, 92, .18));
+  filter: drop-shadow(0 12px 20px rgba(79, 124, 255, .18));
 }
 
 .kb-visual__cluster {
@@ -478,20 +501,28 @@ textarea {
 }
 
 .kb-visual__point {
-  stroke: rgba(255, 255, 255, .72);
+  fill: #9aa9bd;
+  stroke: rgba(255, 255, 255, .78);
   stroke-width: .8;
 }
 
-.kb-visual__node--matched {
-  stroke-width: 3;
-  filter: drop-shadow(0 10px 16px rgba(229, 72, 92, .32));
-}
-
-.kb-visual__query {
-  fill: #17243a;
+.kb-visual__hit-node {
+  fill: #4f7cff;
   stroke: #ffffff;
   stroke-width: 3;
-  filter: drop-shadow(0 10px 16px rgba(23, 36, 58, .24));
+  filter: drop-shadow(0 10px 16px rgba(79, 124, 255, .32));
+}
+
+.kb-visual__hit-node--global {
+  stroke-width: 3.2;
+}
+
+.kb-visual__query,
+.kb-visual__query-vector {
+  fill: #e5485c;
+  stroke: #ffffff;
+  stroke-width: 3;
+  filter: drop-shadow(0 10px 16px rgba(229, 72, 92, .28));
 }
 
 .kb-visual__label {
@@ -523,20 +554,16 @@ textarea {
 }
 
 .kb-visual__detail-guide {
-  fill: rgba(229, 72, 92, .06);
-  stroke: rgba(229, 72, 92, .18);
+  fill: rgba(79, 124, 255, .06);
+  stroke: rgba(79, 124, 255, .18);
   stroke-dasharray: 5 6;
 }
 
-.kb-visual__detail-node {
-  fill: #e5485c;
-  stroke: #ffffff;
-  stroke-width: 3;
-  filter: drop-shadow(0 8px 14px rgba(229, 72, 92, .28));
-}
-
-.kb-visual__detail-node.is-selected {
-  fill: #17243a;
+.kb-visual__hit-node.is-selected {
+  fill: #4f7cff;
+  stroke: #17243a;
+  stroke-width: 4;
+  filter: drop-shadow(0 8px 14px rgba(23, 36, 58, .24));
 }
 
 .kb-visual__hit-list {

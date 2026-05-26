@@ -22,6 +22,11 @@ let lastQuery = "";
 let kbVisualization = null;
 let visualizationLoadPromise = null;
 let visualizationError = "";
+let visualizationBaseCanvas = null;
+let visualizationBaseCanvasKey = "";
+let visualizationPointIndex = null;
+let visualizationPointIndexKey = "";
+let visualizationSourceCount = 0;
 
 const sessionStore = window.sessionStorage;
 const url = new URL(window.location.href);
@@ -187,6 +192,12 @@ function numericValue(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function resultScoreRatio(results, index) {
+  const scores = (Array.isArray(results) ? results : []).map((item) => Math.abs(numericValue(item.score)));
+  const maxScore = Math.max(...scores, 1);
+  return Math.max(0.12, Math.min(1, Math.abs(numericValue(results?.[index]?.score)) / maxScore));
+}
+
 function createSvgElement(tag, attrs = {}) {
   const el = document.createElementNS(SVG_NS, tag);
   Object.entries(attrs).forEach(([key, value]) => {
@@ -235,22 +246,6 @@ function groupResultsForVisualization(results) {
   return [...groupMap.values()];
 }
 
-function resultMatchKeys(results) {
-  const keys = new Map();
-  (Array.isArray(results) ? results : []).forEach((item, index) => {
-    if (item.id !== null && item.id !== undefined) keys.set(`id:${item.id}`, index);
-    const knowledgeUnitId = resultKnowledgeUnitId(item);
-    if (knowledgeUnitId) keys.set(`ku:${knowledgeUnitId}`, index);
-  });
-  return keys;
-}
-
-function pointMatchIndex(point, matchKeys) {
-  if (point.id !== null && point.id !== undefined && matchKeys.has(`id:${point.id}`)) return matchKeys.get(`id:${point.id}`);
-  if (point.knowledge_unit_id && matchKeys.has(`ku:${point.knowledge_unit_id}`)) return matchKeys.get(`ku:${point.knowledge_unit_id}`);
-  return -1;
-}
-
 function colorForSource(source, colorMap) {
   if (!colorMap.has(source)) colorMap.set(source, VISUAL_COLORS[colorMap.size % VISUAL_COLORS.length]);
   return colorMap.get(source);
@@ -260,6 +255,63 @@ function scaledPoint(point) {
   return {
     x: 520 + numericValue(point.x) * 440,
     y: 260 - numericValue(point.y) * 205,
+  };
+}
+
+function visualizationBaseKey(points) {
+  return `${kbVisualization?.method || "unknown"}:${points.length}:${points[0]?.id ?? ""}:${points[points.length - 1]?.id ?? ""}`;
+}
+
+function getVisualizationBaseCanvas(points) {
+  const key = visualizationBaseKey(points);
+  if (visualizationBaseCanvas && visualizationBaseCanvasKey === key) return visualizationBaseCanvas;
+
+  const canvas = document.createElement("canvas");
+  canvas.className = "kb-visual__base-canvas";
+  canvas.width = 1040;
+  canvas.height = 520;
+  const ctx = canvas.getContext("2d", { alpha: true });
+  if (ctx) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "rgba(154, 169, 189, 0.34)";
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.72)";
+    ctx.lineWidth = 0.75;
+    points.forEach((point) => {
+      const { x, y } = scaledPoint(point);
+      ctx.beginPath();
+      ctx.arc(x, y, 3.1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    });
+  }
+  visualizationBaseCanvas = canvas;
+  visualizationBaseCanvasKey = key;
+  return canvas;
+}
+
+function getVisualizationPointIndex(points) {
+  const key = visualizationBaseKey(points);
+  if (visualizationPointIndex && visualizationPointIndexKey === key) return visualizationPointIndex;
+
+  const index = new Map();
+  const sources = new Set();
+  points.forEach((point) => {
+    sources.add(point.source || "unknown");
+    if (point.id !== null && point.id !== undefined) index.set(`id:${point.id}`, point);
+    if (point.knowledge_unit_id) index.set(`ku:${point.knowledge_unit_id}`, point);
+  });
+  visualizationPointIndex = index;
+  visualizationPointIndexKey = key;
+  visualizationSourceCount = sources.size;
+  return index;
+}
+
+function localRingCoordinates(hitItems, index) {
+  const angle = (Math.PI * 2 * index) / Math.max(hitItems.length, 1) - Math.PI / 2;
+  const radius = hitItems.length <= 1 ? 0 : 92;
+  return {
+    x: 180 + Math.cos(angle) * radius,
+    y: 170 + Math.sin(angle) * radius,
   };
 }
 
@@ -273,16 +325,60 @@ function localHitCoordinates(hitItems, item, index) {
   const spreadX = maxX - minX;
   const spreadY = maxY - minY;
   if (spreadX < 8 && spreadY < 8) {
-    const angle = (Math.PI * 2 * index) / Math.max(hitItems.length, 1) - Math.PI / 2;
-    const radius = hitItems.length <= 1 ? 0 : 92;
-    return {
-      x: 180 + Math.cos(angle) * radius,
-      y: 170 + Math.sin(angle) * radius,
-    };
+    return localRingCoordinates(hitItems, index);
   }
+
+  const meanX = xs.reduce((sum, value) => sum + value, 0) / Math.max(xs.length, 1);
+  const meanY = ys.reduce((sum, value) => sum + value, 0) / Math.max(ys.length, 1);
+  let covariance = 0;
+  let varianceX = 0;
+  let varianceY = 0;
+  hitItems.forEach((hit) => {
+    const dx = hit.actual.x - meanX;
+    const dy = hit.actual.y - meanY;
+    covariance += dx * dy;
+    varianceX += dx * dx;
+    varianceY += dy * dy;
+  });
+  const correlation = covariance / Math.sqrt(Math.max(varianceX * varianceY, 1));
+  if (hitItems.length > 2 && Math.abs(correlation) > 0.88) {
+    return localRingCoordinates(hitItems, index);
+  }
+
   return {
     x: 44 + ((item.actual.x - minX) / Math.max(spreadX, 1)) * 272,
     y: 44 + ((item.actual.y - minY) / Math.max(spreadY, 1)) * 252,
+  };
+}
+
+function weightedCenter(items, getPoint = (item) => item.actual) {
+  if (!items.length) return { x: 180, y: 170 };
+  let weightSum = 0;
+  let xSum = 0;
+  let ySum = 0;
+  items.forEach((item) => {
+    const weight = Math.max(0.12, numericValue(item.scoreRatio, 0.5));
+    const point = getPoint(item);
+    weightSum += weight;
+    xSum += point.x * weight;
+    ySum += point.y * weight;
+  });
+  return { x: xSum / weightSum, y: ySum / weightSum };
+}
+
+function similarityLineAttrs(items, hit, baseWidth = 1.2, widthRange = 6) {
+  const count = Math.max(items.length, 1);
+  const rankIndex = Math.max(0, items.findIndex((item) => item.matchIndex === hit.matchIndex));
+  const rankRatio = count <= 1 ? 1 : 1 - rankIndex / (count - 1);
+  const scoreRatio = Math.max(0, Math.min(1, numericValue(hit.scoreRatio, rankRatio)));
+  const visualRatio = Math.max(0, Math.min(1, rankRatio * 0.7 + scoreRatio * 0.3));
+  const hue = 224 + Math.round((1 - visualRatio) * 16);
+  const saturation = 92;
+  const lightness = 26 + Math.round((1 - visualRatio) * 42);
+  return {
+    "stroke-width": baseWidth + visualRatio * widthRange,
+    stroke: `hsl(${hue} ${saturation}% ${lightness}%)`,
+    opacity: 0.42 + visualRatio * 0.5,
   };
 }
 
@@ -310,14 +406,39 @@ function renderLocalHitPanel(container, hitItems, selectedIndex = 0) {
   });
   svg.appendChild(guide);
 
-  hitItems.forEach((hit, index) => {
-    const { x, y } = localHitCoordinates(hitItems, hit, index);
+  const localItems = hitItems.map((hit, index) => ({ ...hit, local: localHitCoordinates(hitItems, hit, index) }));
+  const localQuery = weightedCenter(localItems, (item) => item.local);
+
+  localItems.forEach((hit) => {
+    svg.appendChild(createSvgElement("line", {
+      x1: localQuery.x,
+      y1: localQuery.y,
+      x2: hit.local.x,
+      y2: hit.local.y,
+      class: "kb-visual__similarity-line",
+      ...similarityLineAttrs(localItems, hit, 1.4, 6.2),
+    }));
+  });
+
+  const queryNode = createSvgElement("circle", {
+    cx: localQuery.x,
+    cy: localQuery.y,
+    r: 16,
+    class: "kb-visual__query-vector",
+  });
+  const queryTitle = createSvgElement("title");
+  queryTitle.textContent = "用户问题向量（根据 Top-K 命中位置近似）";
+  queryNode.appendChild(queryTitle);
+  svg.appendChild(queryNode);
+
+  localItems.forEach((hit) => {
+    const { x, y } = hit.local;
     const isSelected = hit.matchIndex === selectedIndex;
     const node = createSvgElement("circle", {
       cx: x,
       cy: y,
       r: isSelected ? 18 : 14,
-      class: isSelected ? "kb-visual__detail-node is-selected" : "kb-visual__detail-node",
+      class: isSelected ? "kb-visual__hit-node is-selected" : "kb-visual__hit-node",
     });
     const nodeTitle = createSvgElement("title");
     nodeTitle.textContent = [
@@ -393,14 +514,18 @@ function renderWholeKbVisualization(results, query = "") {
     return;
   }
 
-  const matchKeys = resultMatchKeys(results);
-  const colorMap = new Map();
-  const matchedCount = points.filter((point) => pointMatchIndex(point, matchKeys) >= 0).length;
-  const sourceCount = new Set(points.map((point) => point.source || "unknown")).size;
+  const pointIndex = getVisualizationPointIndex(points);
+  const indexedHits = (Array.isArray(results) ? results : []).map((result, matchIndex) => {
+    let point = null;
+    if (result.id !== null && result.id !== undefined) point = pointIndex.get(`id:${result.id}`) || null;
+    const knowledgeUnitId = resultKnowledgeUnitId(result);
+    if (!point && knowledgeUnitId) point = pointIndex.get(`ku:${knowledgeUnitId}`) || null;
+    return point ? { point, matchIndex } : null;
+  }).filter(Boolean);
+  const matchedCount = indexedHits.length;
+  const sourceCount = visualizationSourceCount;
   const matchedBuckets = new Map();
-  points.forEach((point) => {
-    const matchIndex = pointMatchIndex(point, matchKeys);
-    if (matchIndex < 0) return;
+  indexedHits.forEach(({ point, matchIndex }) => {
     const { x, y } = scaledPoint(point);
     const bucketKey = `${Math.round(x / 18)}:${Math.round(y / 18)}`;
     if (!matchedBuckets.has(bucketKey)) matchedBuckets.set(bucketKey, []);
@@ -414,9 +539,9 @@ function renderWholeKbVisualization(results, query = "") {
   const legend = document.createElement("div");
   legend.className = "kb-visual__legend";
   [
-    ["#17243a", "Query"],
-    ["#e5485c", "本次命中"],
-    ["#4f7cff", "全库片段：颜色区分来源文件"],
+    ["#e5485c", "用户问题向量"],
+    ["#4f7cff", "Top-K 命中文档片段"],
+    ["#9aa9bd", "其他知识片段"],
   ].forEach(([color, text]) => {
     const item = document.createElement("span");
     item.className = "kb-visual__legend-item";
@@ -436,21 +561,21 @@ function renderWholeKbVisualization(results, query = "") {
   globalPane.className = "kb-visual__global-pane";
   const detailPane = document.createElement("div");
   detailPane.className = "kb-visual__detail-pane";
+  const baseCanvas = getVisualizationBaseCanvas(points);
   const svg = createSvgElement("svg", { viewBox: "0 0 1040 520", role: "img", "aria-label": "全库向量降维图" });
-  const backgroundLayer = createSvgElement("g");
+  svg.classList.add("kb-visual__overlay");
   const tetherLayer = createSvgElement("g");
   const focusLayer = createSvgElement("g");
+  const similarityLayer = createSvgElement("g");
   const matchLayer = createSvgElement("g");
   const labelLayer = createSvgElement("g");
   const hitItems = [];
 
-  points.forEach((point) => {
-    const matchIndex = pointMatchIndex(point, matchKeys);
+  indexedHits.forEach(({ point, matchIndex }) => {
     const actual = scaledPoint(point);
     let x = actual.x;
     let y = actual.y;
     const source = point.source || "unknown";
-    const color = colorForSource(source, colorMap);
     const isMatched = matchIndex >= 0;
     if (isMatched) {
       const bucketKey = `${Math.round(actual.x / 18)}:${Math.round(actual.y / 18)}`;
@@ -469,15 +594,22 @@ function renderWholeKbVisualization(results, query = "") {
           class: "kb-visual__match-tether",
         }));
       }
-      hitItems.push({ point, matchIndex, source, actual });
+      hitItems.push({
+        point,
+        matchIndex,
+        source,
+        actual,
+        scoreRatio: resultScoreRatio(results, matchIndex),
+        display: { x, y },
+      });
     }
+    if (!isMatched) return;
     const node = createSvgElement("circle", {
       cx: x,
       cy: y,
       r: isMatched ? 11 : 3.2,
-      fill: isMatched ? "#e5485c" : color,
-      class: isMatched ? "kb-visual__node kb-visual__node--matched" : "kb-visual__point",
-      opacity: isMatched ? 0.96 : 0.36,
+      class: isMatched ? "kb-visual__hit-node kb-visual__hit-node--global" : "kb-visual__point",
+      opacity: isMatched ? 0.98 : 0.34,
     });
     const title = createSvgElement("title");
     title.textContent = [
@@ -492,7 +624,7 @@ function renderWholeKbVisualization(results, query = "") {
       node.style.cursor = "pointer";
       node.addEventListener("click", () => renderLocalHitPanel(detailPane, hitItems, matchIndex));
     }
-    (isMatched ? matchLayer : backgroundLayer).appendChild(node);
+    matchLayer.appendChild(node);
 
     if (isMatched) {
       const rank = createSvgElement("text", { x, y, class: "kb-visual__rank" });
@@ -521,16 +653,28 @@ function renderWholeKbVisualization(results, query = "") {
     }));
   }
 
-  const queryNode = createSvgElement("circle", { cx: 78, cy: 58, r: 18, class: "kb-visual__query" });
+  const queryPosition = hitItems.length ? weightedCenter(hitItems, (item) => item.actual) : { x: 78, y: 58 };
+  hitItems.forEach((hit) => {
+    similarityLayer.appendChild(createSvgElement("line", {
+      x1: queryPosition.x,
+      y1: queryPosition.y,
+      x2: hit.display.x,
+      y2: hit.display.y,
+      class: "kb-visual__similarity-line",
+      ...similarityLineAttrs(hitItems, hit, 1.2, 6.8),
+    }));
+  });
+
+  const queryNode = createSvgElement("circle", { cx: queryPosition.x, cy: queryPosition.y, r: 18, class: "kb-visual__query-vector" });
   const queryTitle = createSvgElement("title");
-  queryTitle.textContent = `Query: ${query || "当前检索问题"}`;
+  queryTitle.textContent = `用户问题向量：${query || "当前检索问题"}\n位置由 Top-K 命中点加权近似`;
   queryNode.appendChild(queryTitle);
-  const queryLabel = createSvgElement("text", { x: 104, y: 63, class: "kb-visual__label" });
-  queryLabel.textContent = shortLabel(query || "Query", 32);
+  const queryLabel = createSvgElement("text", { x: queryPosition.x + 22, y: queryPosition.y - 18, class: "kb-visual__label" });
+  queryLabel.textContent = "用户问题向量";
   labelLayer.append(queryNode, queryLabel);
 
-  svg.append(backgroundLayer, focusLayer, tetherLayer, matchLayer, labelLayer);
-  globalPane.appendChild(svg);
+  svg.append(focusLayer, tetherLayer, similarityLayer, matchLayer, labelLayer);
+  globalPane.append(baseCanvas, svg);
   renderLocalHitPanel(detailPane, hitItems, hitItems[0]?.matchIndex || 0);
   stage.append(globalPane, detailPane);
   visualizationPanelEl.append(toolbar, stage);

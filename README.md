@@ -81,8 +81,8 @@ frontend/
 ```bash
 python knowledge_base/build_kb.py \
   --source examples/knowledge_base_docs \
-  --output .openclaw-kb \
-  --visualization-method pca
+  --output .kb \
+  --visualization-method umap
 ```
 
 构建完成后会同步生成 `visualization.json`，用于独立知识库测试页展示全库向量降维图。默认使用 PCA，速度快且不需要额外依赖；如果服务器已安装 `umap-learn`，也可以改用 `--visualization-method umap` 获得更明显的聚类效果。
