@@ -2390,13 +2390,14 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/sessions":
                 params = urllib.parse.parse_qs(parsed.query)
-                session = sanitize_session((params.get("session") or [""])[0])
-                if session:
-                    delete_session_file(session)
-                    log_event("session_delete", session=session)
-                else:
+                if (params.get("all") or [""])[0].strip().lower() in {"1", "true", "yes"}:
                     count = delete_all_session_files()
                     log_event("sessions_delete_all", count=count)
+                else:
+                    session = sanitize_session((params.get("session") or [""])[0])
+                    if session:
+                        delete_session_file(session)
+                        log_event("session_delete", session=session)
                 json_response(self, HTTPStatus.OK, {"ok": True, "sessions": list_sessions()})
                 return
             json_response(self, HTTPStatus.NOT_FOUND, {"error": f"not found: {parsed.path}"})

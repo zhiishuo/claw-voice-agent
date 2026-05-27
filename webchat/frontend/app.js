@@ -1472,7 +1472,7 @@
       try {
         hideSessionContextMenu();
         const sessions = [...state.sessions];
-        await api("/api/sessions", { method: "DELETE" });
+        await api("/api/sessions?all=true", { method: "DELETE" });
         sessions.forEach((item) => clearSessionLocalArtifacts(item.id));
         setSession(makeSession());
         state.voiceMessages = {};
