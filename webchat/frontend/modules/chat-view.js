@@ -423,6 +423,7 @@ export function createChatView({ messagesEl }) {
     messagesEl.innerHTML = "";
     flowChecklistEl = null;
     const voiceRecords = Array.isArray(options.voiceRecords) ? [...options.voiceRecords] : [];
+    const hasVoice = voiceRecords.length > 0;
     if (!items.length) {
       addMessage("system", "新会话已就绪。可以直接发文本，或录音/上传音频。\n\n录音不会在浏览器里识别，而是上传到服务器后转写。");
       return;
@@ -433,7 +434,9 @@ export function createChatView({ messagesEl }) {
       if (role === "assistant" && previousRole === "user" && !isHiddenAgentAck(role, item.content)) {
         appendHistoricalFlowChecklist();
       }
-      if (role === "user") {
+      if (!hasVoice) {
+        addMessage(role, item.content || "");
+      } else if (role === "user") {
         const content = item.content || "";
         const index = voiceRecords.findIndex((record) => {
           const text = String(record.userText || record.transcript || "").trim();
@@ -457,11 +460,6 @@ export function createChatView({ messagesEl }) {
         if (index >= 0) {
           const record = voiceRecords.splice(index, 1)[0];
           addMessage(role, "", record.ttsAudioUrl || DEFAULT_AUDIO_URL, {
-            transcriptText: content,
-            transcriptLabel: "查看回复文本",
-          });
-        } else if (previousRole === "user" && content) {
-          addMessage(role, "", DEFAULT_AUDIO_URL, {
             transcriptText: content,
             transcriptLabel: "查看回复文本",
           });

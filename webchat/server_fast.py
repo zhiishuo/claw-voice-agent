@@ -1640,6 +1640,60 @@ def sanitize_session(raw):
 def session_file(session):
     return DATA_DIR / f"{session}.json"
 
+
+def list_sessions():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    sessions = []
+    for path in DATA_DIR.iterdir():
+        if not path.suffix == ".json" or not path.is_file():
+            continue
+        session_id = path.stem
+        messages = []
+        try:
+            messages = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+        if not isinstance(messages, list):
+            continue
+        updated_at = 0
+        preview = ""
+        for msg in reversed(messages):
+            ts = msg.get("ts") or 0
+            if ts and (not updated_at or ts > updated_at):
+                updated_at = ts
+            if not preview and msg.get("role") in ("user", "assistant"):
+                text = str(msg.get("content") or "").strip()
+                if text:
+                    preview = text[:80]
+        sessions.append({
+            "id": session_id,
+            "title": f"会话 {session_id}",
+            "preview": preview or session_id,
+            "messageCount": len(messages),
+            "updatedAt": updated_at or int(path.stat().st_mtime * 1000),
+        })
+    sessions.sort(key=lambda s: s.get("updatedAt", 0), reverse=True)
+    return sessions
+
+
+def delete_session_file(session):
+    path = session_file(session)
+    if path.exists():
+        path.unlink()
+        return True
+    return False
+
+
+def delete_all_session_files():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    count = 0
+    for path in DATA_DIR.iterdir():
+        if path.suffix == ".json" and path.is_file():
+            path.unlink()
+            count += 1
+    return count
+
+
 # 读整个会话消息列表。
 def load_messages(session):
     path = session_file(session)
@@ -2276,6 +2330,9 @@ class Handler(BaseHTTPRequestHandler):
                 items = [{"error": str(exc)}]
             json_response(self, HTTPStatus.OK, {"items": items})
             return
+        if parsed.path == "/api/sessions":
+            json_response(self, HTTPStatus.OK, {"sessions": list_sessions()})
+            return
         if parsed.path == "/api/messages":
             params = urllib.parse.parse_qs(parsed.query)
             session = sanitize_session((params.get("session") or [""])[0])
@@ -2324,6 +2381,28 @@ class Handler(BaseHTTPRequestHandler):
             self.serve_audio_file(path, mime)
             return
         json_response(self, HTTPStatus.NOT_FOUND, {"error": f"not found: {parsed.path}"})
+
+    def do_DELETE(self):
+        parsed = urllib.parse.urlparse(self.path)
+        try:
+            if not require_auth(self, parsed):
+                json_response(self, HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
+                return
+            if parsed.path == "/api/sessions":
+                params = urllib.parse.parse_qs(parsed.query)
+                session = sanitize_session((params.get("session") or [""])[0])
+                if session:
+                    delete_session_file(session)
+                    log_event("session_delete", session=session)
+                else:
+                    count = delete_all_session_files()
+                    log_event("sessions_delete_all", count=count)
+                json_response(self, HTTPStatus.OK, {"ok": True, "sessions": list_sessions()})
+                return
+            json_response(self, HTTPStatus.NOT_FOUND, {"error": f"not found: {parsed.path}"})
+        except Exception as exc:
+            log_event("request_error", path=parsed.path, error=str(exc))
+            json_response(self, HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(exc)})
 
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)

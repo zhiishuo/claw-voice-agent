@@ -1376,7 +1376,7 @@
       setBusy(true, "加载会话...");
       try {
         const data = await api(`/api/messages?session=${encodeURIComponent(state.session)}`);
-        renderMessages(data.messages || [], { voiceRecords: voiceRecordsForCurrentSession() });
+        renderMessages(data.messages || []);
         state.flowChecklistVisible = false;
         syncFlowChecklist();
         statusEl.textContent = `已加载 ${state.session}`;
