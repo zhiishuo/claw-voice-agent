@@ -1907,7 +1907,7 @@ def parse_suggestion_items(content):
         parsed = []
         for line in re.split(r"[\r\n]+", text):
             value = re.sub(r"^\s*(?:[-*]|\d+[.)、])\s*", "", line).strip()
-            value = value.strip(" \t\"'，,。；;")
+            value = value.strip(" \t\"'，,。；;[\\]")
             if value:
                 parsed.append(value)
     suggestions = []
@@ -1915,7 +1915,7 @@ def parse_suggestion_items(content):
     for item in parsed:
         value = str(item or "").strip()
         value = re.sub(r"^\s*(?:[-*]|\d+[.)、])\s*", "", value).strip()
-        value = value.strip(" \t\"'，,。；;")
+        value = value.strip(" \t\"'，,。；;[\\]{}")
         if not value or value in seen:
             continue
         seen.add(value)
