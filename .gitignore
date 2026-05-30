@@ -41,3 +41,5 @@ pytest_cache/
 .kb
 
 AGENTS.md
+CLAUDE.md
+TEST_CHECKLIST.md

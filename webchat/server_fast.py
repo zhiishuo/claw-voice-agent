@@ -44,6 +44,7 @@ COSYVOICE_TTS_URL = os.environ.get("OPENCLAW_WEBCHAT_COSYVOICE_URL", "http://127
 SHERPA_WAKE_URL = os.environ.get("OPENCLAW_WEBCHAT_SHERPA_WAKE_URL", "http://127.0.0.1:9462/check")
 AGENT_ID = os.environ.get("OPENCLAW_WEBCHAT_AGENT", "localqwen")
 FAST_MODE = os.environ.get("OPENCLAW_WEBCHAT_FAST_MODE", "1").strip().lower() not in {"0", "false", "no"}
+MOCK_MODE = os.environ.get("OPENCLAW_WEBCHAT_MOCK", "0").strip().lower() not in {"0", "false", "no", ""}
 FAST_LLM_URL = os.environ.get("OPENCLAW_FAST_LLM_URL", "http://127.0.0.1:8000/v1/chat/completions")
 FAST_LLM_MODEL = os.environ.get("OPENCLAW_FAST_LLM_MODEL", "qwen-local")
 FAST_LLM_API_KEY = os.environ.get("OPENCLAW_FAST_LLM_API_KEY", "vllm-local")
@@ -82,6 +83,8 @@ except Exception as exc:
 
     KNOWLEDGE_SERVICE = _UnavailableKnowledgeService(exc)
 from prompts import build_fast_system_prompt, build_openclaw_user_message, build_suggestion_messages
+if MOCK_MODE:
+    from mock import ensure_mock_tts_file
 
 # 把事件写到日志文件，也打印到 stdout。前端的“最近动作”和唤醒调试，很多都依赖这个日志。
 def log_event(event, **fields):
@@ -2416,6 +2419,13 @@ class Handler(BaseHTTPRequestHandler):
             client_id = self.headers.get("X-Client-Id", "")
             request_id = self.headers.get("X-Request-Id", "")
             session_header = self.headers.get("X-Session-Key", "")
+            # Mock 模式：直接返回模拟数据，不走真实服务
+            if MOCK_MODE:
+                from mock import handle_mock_post
+                mock_result = handle_mock_post(parsed.path, raw)
+                if mock_result is not None:
+                    json_response(self, HTTPStatus.OK, mock_result)
+                    return
             if parsed.path == "/api/knowledge/search":
                 payload = json.loads(raw.decode("utf-8") if raw else "{}")
                 query = str(payload.get("query") or payload.get("message") or "").strip()
@@ -2663,6 +2673,9 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    # Mock 模式：将 mock 音频文件复制到 TTS 目录
+    if MOCK_MODE:
+        ensure_mock_tts_file(TTS_DIR)
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     scheme = "http"
     if TLS_CERT_PATH and TLS_KEY_PATH:
