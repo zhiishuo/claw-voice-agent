@@ -213,73 +213,85 @@
         </div>
 
         <!-- ==================== 视图 2：知识库测试 (Knowledge Base Lab) ==================== -->
-        <div id="kb-test-view" class="absolute inset-0 w-full h-full bg-[#f4f5f7] overflow-y-auto view-transition opacity-0 pointer-events-none z-0 px-4 py-8 flex flex-col items-center">
-            <div class="w-full max-w-5xl flex flex-col gap-4 pb-20">
+        <div id="kb-test-view" class="absolute inset-0 w-full h-full bg-[#f5f7fb] overflow-y-auto view-transition opacity-0 pointer-events-none z-0 px-4 py-8 flex flex-col items-center">
+            <div class="kb-lab-page w-full flex flex-col gap-4 pb-20">
                 <!-- 头部标题卡片 -->
-                <div class="w-full bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex justify-between items-start">
+                <div class="kb-lab-card kb-lab-hero flex justify-between items-center gap-4">
                     <div>
-                        <div class="text-blue-600 font-bold text-xs tracking-wider mb-1 uppercase">Knowledge Base Lab</div>
-                        <h1 class="text-2xl font-bold text-gray-800 mb-2 tracking-wide">知识库测试</h1>
-                        <p class="text-sm text-gray-500">用于单独检查知识库状态和检索结果，不影响当前语音工作台会话。</p>
+                        <div class="kb-lab-eyebrow">Knowledge Base Lab</div>
+                        <h1 class="kb-lab-title">知识库检索测试台</h1>
+                        <p class="kb-lab-subtitle">用于验证知识库状态、Top-K召回与检索效果。</p>
                     </div>
-                    <button id="nav-back-btn" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium rounded-full transition-colors flex items-center gap-2">
-                        返回工作台 <i class="fa-solid fa-arrow-right"></i>
+                    <button id="nav-back-btn" class="kb-lab-pill-btn">
+                        <i class="fa-solid fa-arrow-right"></i>
+                        <span>返回工作台</span>
                     </button>
                 </div>
 
                 <!-- 连接信息卡片 -->
-                <div class="w-full bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex items-center justify-between">
-                    <div class="flex items-start gap-4">
-                        <div class="w-10 h-10 rounded-full bg-green-50 flex items-center justify-center flex-shrink-0 mt-1">
-                            <div id="kb-status-dot" class="w-4 h-4 bg-green-400 rounded-full animate-pulse"></div>
-                        </div>
-                        <div>
-                            <div class="text-sm font-bold text-gray-800 mb-1">连接信息</div>
-                            <div id="kb-status-text" class="text-green-600 font-medium mb-3 text-[15px]">检测中...</div>
-                            <div id="kb-status-tags" class="flex flex-wrap gap-2 text-xs text-gray-500"></div>
-                        </div>
+                <div class="kb-lab-card kb-status-card">
+                    <div class="kb-status-main">
+                        <div id="kb-status-dot" class="kb-status-dot"></div>
+                        <div id="kb-status-text" class="kb-status-text">检测中...</div>
                     </div>
-                    <button id="kb-refresh-btn" class="px-4 py-2 bg-gray-50 hover:bg-gray-100 text-gray-700 text-sm font-medium rounded-full border border-gray-200 transition-colors">刷新状态</button>
+                    <div id="kb-status-tags" class="kb-status-grid"></div>
+                    <button id="kb-refresh-btn" class="kb-lab-pill-btn kb-refresh-btn">
+                        <i class="fa-solid fa-rotate-right"></i>
+                        <span>刷新状态</span>
+                    </button>
                 </div>
 
                 <!-- 测试问题输入卡片 -->
-                <div class="w-full bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-                    <div class="text-sm font-bold text-gray-800 mb-3">测试问题</div>
-                    <textarea id="kb-search-input" rows="4" class="w-full bg-gray-50 border border-gray-200 rounded-xl p-4 text-[15px] text-gray-800 focus:outline-none focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-100 transition-all resize-y mb-4" placeholder="例如：南方8900请求起飞，需要检索哪些知识？"></textarea>
-                    
-                    <div class="flex items-end gap-4">
-                        <div class="w-32">
-                            <label class="block text-xs font-semibold text-gray-600 mb-1.5 ml-1">返回条数</label>
-                            <input id="kb-top-k" type="number" value="4" class="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
-                        </div>
-                        <div class="flex-1">
-                            <label class="block text-xs font-semibold text-gray-600 mb-1.5 ml-1">检索模式</label>
-                            <input id="kb-mode" type="text" placeholder="留空使用默认模式" class="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400">
-                        </div>
-                        <button id="do-search-btn" class="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white text-sm font-medium rounded-full transition-colors shadow-sm mb-[1px]">开始检索</button>
+                <div class="kb-lab-card kb-query-card">
+                    <div class="kb-section-title">
+                        <i class="fa-solid fa-message"></i>
+                        <span>测试问题</span>
+                    </div>
+                    <div class="kb-query-box">
+                        <textarea id="kb-search-input" rows="4" maxlength="1000" placeholder="请输入您的问题，例如：南方8900请求起飞，需要检索哪些知识？"></textarea>
+                        <div id="kb-query-count" class="kb-query-count">0 / 1000</div>
+                    </div>
+                    <div class="kb-query-controls">
+                        <label class="kb-field">
+                            <span>返回条数</span>
+                            <input id="kb-top-k" type="number" min="1" max="50" value="4" inputmode="numeric">
+                        </label>
+                        <label class="kb-field kb-field--mode">
+                            <span>检索模式</span>
+                            <select id="kb-mode">
+                                <option value="">留空使用默认模式</option>
+                                <option value="hybrid">hybrid</option>
+                                <option value="vector">vector</option>
+                                <option value="keyword">keyword</option>
+                            </select>
+                        </label>
+                        <button id="do-search-btn" class="kb-search-btn">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <span>执行检索</span>
+                        </button>
                     </div>
                 </div>
 
                 <!-- 检索结果区 (初始隐藏) -->
                 <div id="kb-results-area" class="w-full hidden flex-col gap-4">
-                    <div class="w-full bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-                        <div class="flex justify-between items-center mb-6">
-                            <div class="text-sm font-bold text-gray-800">检索结果</div>
-                            <div id="kb-result-summary" class="text-xs text-gray-500"></div>
+                    <div class="kb-lab-card kb-results-card">
+                        <div class="kb-results-head">
+                            <div class="kb-section-title">
+                                <i class="fa-solid fa-network-wired"></i>
+                                <span>检索结果</span>
+                            </div>
+                            <div id="kb-result-summary" class="kb-result-summary"></div>
                         </div>
 
-                        <!-- Tabs -->
-                        <div class="flex items-center gap-2 mb-6 p-1 bg-gray-100/80 rounded-lg inline-flex">
-                            <button id="kb-tab-results" class="kb-test-tab px-4 py-1.5 bg-white shadow-sm text-sm font-medium text-gray-800 rounded-md">检索结果</button>
-                            <button id="kb-tab-viz" class="kb-test-tab px-4 py-1.5 text-sm font-medium text-gray-500 hover:text-gray-700 rounded-md">检索结果可视化</button>
+                        <div class="kb-tabs">
+                            <button id="kb-tab-results" class="kb-test-tab active">检索结果</button>
+                            <button id="kb-tab-viz" class="kb-test-tab">结果可视化</button>
                         </div>
 
-                        <!-- 结果列表容器 -->
-                        <div id="kb-results-list" class="flex flex-col gap-4"></div>
+                        <div id="kb-results-list" class="kb-result-list"></div>
 
-                        <!-- 可视化容器 (初始隐藏) -->
                         <div id="kb-viz-area" class="hidden">
-                            <div id="kb-viz-content" class="w-full bg-gray-50 rounded-xl p-4 min-h-[200px] flex items-center justify-center text-sm text-gray-400">
+                            <div id="kb-viz-content" class="kb-viz-content">
                                 暂无可视化数据
                             </div>
                         </div>
