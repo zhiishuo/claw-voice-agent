@@ -55,10 +55,11 @@ function renderMessages(chatContainer, messages = []) {
 
   chatContainer.innerHTML = rows.map((message) => {
     const role = message.role || "assistant";
-    const content = escapeHtml(message.content || message.text || "");
+    const rawContent = message.content || message.text || "";
     const ts = message.ts ? new Date(message.ts).toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit" }) : "";
 
     if (role === "user") {
+      const content = escapeHtml(rawContent);
       return `
         <div class="flex justify-end message-anim mt-2">
           <div class="flex flex-col max-w-[80%] items-end">
@@ -68,11 +69,14 @@ function renderMessages(chatContainer, messages = []) {
         </div>
       `;
     }
+    const html = rawContent
+      ? (typeof marked !== "undefined" ? marked.parse(rawContent) : escapeHtml(rawContent).replace(/\n/g, "<br>"))
+      : "";
     return `
       <div class="flex items-start gap-4 message-anim mt-2">
         <div class="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex-shrink-0 flex items-center justify-center font-bold text-xs">ATC</div>
         <div class="flex-1 flex flex-col gap-1 min-w-0">
-          <div class="text-[15px] leading-relaxed p-1 text-gray-800">${content}</div>
+          <div class="text-[15px] leading-relaxed p-1 text-gray-800"><div class="markdown-body">${html}</div></div>
           ${ts ? `<div class="text-[10px] text-gray-400 ml-1">${ts}</div>` : ""}
         </div>
       </div>
