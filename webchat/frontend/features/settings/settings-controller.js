@@ -108,7 +108,7 @@ export function initSettingsModal({ context, debugService } = {}) {
   function loadSettingsToForm() {
     if (wakeWordInput) wakeWordInput.value = readLocal(STORAGE_KEYS.wakePhrase, "南方8900");
     if (languageSelect) languageSelect.value = readLocal(STORAGE_KEYS.language, "zh");
-    if (ttsModeSelect) ttsModeSelect.value = readLocal(STORAGE_KEYS.ttsMode, "api");
+    if (ttsModeSelect) ttsModeSelect.value = readLocal(STORAGE_KEYS.ttsMode, "microsoft");
     if (voiceTypeSelect) voiceTypeSelect.value = readLocal(STORAGE_KEYS.ttsVoice, "zh-CN-XiaoxiaoNeural");
     if (voiceModeSelect) voiceModeSelect.value = readLocal(STORAGE_KEYS.voiceInputMode, "ptt");
     if (autoTtsCheckbox) autoTtsCheckbox.checked = readLocal(STORAGE_KEYS.autoTts, "1") !== "0";
@@ -120,7 +120,7 @@ export function initSettingsModal({ context, debugService } = {}) {
   function saveFormToSettings() {
     const wakePhrase = wakeWordInput?.value?.trim() || "南方8900";
     const language = languageSelect?.value || "zh";
-    const ttsMode = ttsModeSelect?.value || "api";
+    const ttsMode = ttsModeSelect?.value || "microsoft";
     const ttsVoice = voiceTypeSelect?.value || "zh-CN-XiaoxiaoNeural";
     const voiceInputMode = voiceModeSelect?.value || "ptt";
     const autoTts = autoTtsCheckbox?.checked ?? true;
