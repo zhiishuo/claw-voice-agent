@@ -94,7 +94,7 @@
             </div>
 
             <!-- 对话展示区 -->
-            <div id="chat-container" class="flex-1 overflow-y-auto px-4 pb-56 pt-6 w-full max-w-4xl mx-auto flex flex-col gap-6 no-scrollbar relative">
+            <div id="chat-container" class="flex-1 overflow-y-auto px-4 pb-56 pt-6 w-full max-w-[95%] md:max-w-[85%] lg:max-w-[75%] xl:max-w-[65%] 2xl:max-w-[55%] mx-auto flex flex-col gap-6 no-scrollbar relative">
                 <!-- 空状态：居中欢迎 -->
                 <div id="empty-welcome" class="flex-1 flex flex-col items-center justify-center min-h-[60vh] text-center message-anim">
                     <h2 class="text-3xl font-bold text-gray-800 mb-3">新会话已就绪</h2>
@@ -104,7 +104,7 @@
 
             <!-- 底部输入栏固定区 -->
             <div class="absolute bottom-0 left-0 w-full bg-gradient-to-t from-white via-white to-transparent pt-12 pb-4 px-4 z-20">
-                <div class="max-w-4xl mx-auto relative flex flex-col items-center gap-3">
+                <div class="max-w-[95%] md:max-w-[85%] lg:max-w-[75%] xl:max-w-[65%] 2xl:max-w-[55%] mx-auto relative flex flex-col items-center gap-3">
                     
                     <!-- 输入框主体 -->
                     <div class="w-full bg-[#f4f4f4] rounded-3xl p-1.5 pl-2 pr-2 flex items-center border border-transparent focus-within:border-gray-300 focus-within:bg-white focus-within:shadow-md transition-all duration-200 relative">
@@ -302,6 +302,7 @@
     </div>
 
     <!-- ==================== JavaScript 逻辑 ==================== -->
+    <script src="/static/vendor/marked/marked.min.js"></script>
     <script type="module" src="/static/app/main.js"></script>
 
     <!-- ==================== Token 认证卡片 ==================== -->

@@ -1,5 +1,10 @@
 import { makeId } from "../../core/ids.js";
 
+// Configure marked for GFM + line breaks
+if (typeof marked !== "undefined") {
+  marked.setOptions({ breaks: true, gfm: true });
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -164,7 +169,12 @@ function showDone(requestId, reply, citations) {
   const finalText = document.getElementById(`final-text-${requestId}`);
   const citationBox = document.getElementById(`kb-citations-${requestId}`);
 
-  if (finalText) finalText.textContent = reply || "[empty reply]";
+  if (finalText) {
+    const html = reply
+      ? (typeof marked !== "undefined" ? marked.parse(reply) : escapeHtml(reply).replace(/\n/g, "<br>"))
+      : "[empty reply]";
+    finalText.innerHTML = `<div class="markdown-body">${html}</div>`;
+  }
   if (citationBox) citationBox.innerHTML = renderCitationItems(citations, requestId);
   if (finalReply) {
     finalReply.classList.remove("hidden");
@@ -178,7 +188,7 @@ function showError(requestId, err) {
   const finalReply = document.getElementById(`final-reply-${requestId}`);
   const finalText = document.getElementById(`final-text-${requestId}`);
 
-  if (finalText) finalText.textContent = `请求失败：${err?.message || err}`;
+  if (finalText) finalText.innerHTML = `<div class="markdown-body text-red-600">请求失败：${escapeHtml(err?.message || err)}</div>`;
   if (finalReply) {
     finalReply.classList.remove("hidden");
     finalReply.classList.add("flex", "message-anim");
@@ -206,12 +216,38 @@ function setupTtsAutoplay(requestId) {
   if (!container) return;
   const audioEl = container.querySelector("audio");
   if (!audioEl) return;
+  const btn = container.querySelector(".audio-message-btn");
+  const icon = btn?.querySelector(".play-icon-container");
+
   audioEl.addEventListener("canplay", () => {
     audioEl.play().catch(() => {});
+    // Update icon to pause state
+    audioEl.setAttribute("data-tts-playing", "1");
+    if (icon) {
+      icon.classList.remove("bg-blue-500");
+      icon.classList.add("bg-red-500");
+      icon.innerHTML = '<i class="fa-solid fa-pause text-xs"></i>';
+    }
   }, { once: true });
   setTimeout(() => {
-    if (audioEl.paused) audioEl.play().catch(() => {});
+    if (audioEl.paused) {
+      audioEl.play().catch(() => {});
+      audioEl.setAttribute("data-tts-playing", "1");
+      if (icon) {
+        icon.classList.remove("bg-blue-500");
+        icon.classList.add("bg-red-500");
+        icon.innerHTML = '<i class="fa-solid fa-pause text-xs"></i>';
+      }
+    }
   }, 3000);
+
+  // Reset icon when audio ends
+  audioEl.addEventListener("ended", () => {
+    icon?.classList.remove("bg-red-500");
+    icon?.classList.add("bg-blue-500");
+    icon && (icon.innerHTML = '<i class="fa-solid fa-play ml-0.5 text-xs"></i>');
+    audioEl.removeAttribute("data-tts-playing");
+  });
 }
 
 function initTtsPlayerGlobals() {
@@ -220,26 +256,31 @@ function initTtsPlayerGlobals() {
     const audioEl = container?.querySelector("audio");
     if (!audioEl) return;
 
+    // Stop any other playing TTS audio
     document.querySelectorAll("[data-tts-playing]").forEach((a) => {
-      a.pause();
-      a.currentTime = 0;
-      a.removeAttribute("data-tts-playing");
+      if (a !== audioEl) {
+        a.pause();
+        a.currentTime = 0;
+        a.removeAttribute("data-tts-playing");
+      }
     });
     document.querySelectorAll(".play-icon-container").forEach((icon) => {
-      if (icon.closest("[onclick*='playTtsAudio']")) {
+      if (icon.closest("[onclick*='playTtsAudio']") && icon !== btn.querySelector(".play-icon-container")) {
         icon.classList.remove("bg-red-500");
         icon.classList.add("bg-blue-500");
         icon.innerHTML = '<i class="fa-solid fa-play ml-0.5 text-xs"></i>';
       }
     });
 
+    const icon = btn.querySelector(".play-icon-container");
+
     if (audioEl.paused) {
+      // Resume or start playing
       audioEl.setAttribute("data-tts-playing", "1");
-      const icon = btn.querySelector(".play-icon-container");
       if (icon) {
         icon.classList.remove("bg-blue-500");
         icon.classList.add("bg-red-500");
-        icon.innerHTML = '<i class="fa-solid fa-stop text-xs"></i>';
+        icon.innerHTML = '<i class="fa-solid fa-pause text-xs"></i>';
       }
       audioEl.play().catch(() => {});
       audioEl.addEventListener("ended", () => {
@@ -249,9 +290,14 @@ function initTtsPlayerGlobals() {
         audioEl.removeAttribute("data-tts-playing");
       }, { once: true });
     } else {
+      // Pause (keep position, don't reset)
       audioEl.pause();
-      audioEl.currentTime = 0;
       audioEl.removeAttribute("data-tts-playing");
+      if (icon) {
+        icon.classList.remove("bg-red-500");
+        icon.classList.add("bg-blue-500");
+        icon.innerHTML = '<i class="fa-solid fa-play ml-0.5 text-xs"></i>';
+      }
     }
   };
 }

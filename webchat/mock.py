@@ -50,10 +50,34 @@ def _mock_chat(payload):
     session = payload.get("session", "mock-session")
     message = payload.get("message", "")
     knowledge_enabled = payload.get("knowledgeEnabled", True)
-    # TODO: 根据 message 内容返回不同的 mock 回复
+
     reply = (
-        "这是 Mock 模式的模拟回复。\n\n"
-        "您发送的消息是：" + (message[:100] if message else "(空)")
+        "## 飞行的关键要素\n\n"
+        "根据航空知识库，飞行安全需要关注以下几个方面：\n\n"
+        "### 1. 重量与平衡\n"
+        "确保航空器的**重量和重心**处于安全范围内，这是飞行安全的基础。\n\n"
+        "### 2. 不同飞行阶段的重点\n"
+        "每个飞行阶段都有特定的操作重点：\n\n"
+        "| 阶段 | 重点 |\n"
+        "|------|------|\n"
+        "| 起飞 | 跑道状态、气象条件 |\n"
+        "| 巡航 | 航路飞行、高度层保持 |\n"
+        "| 着陆 | 进近程序、天气标准 |\n\n"
+        "### 3. 关键检查项\n\n"
+        "- [x] 重量和平衡计算\n"
+        "- [x] 气象条件确认\n"
+        "- [x] 航空器性能核实\n"
+        "- [ ] 空管指令确认\n\n"
+        "### 4. 代码示例\n\n"
+        "```python\n"
+        "def check_flight_safety(aircraft):\n"
+        "    weight = aircraft.get_weight()\n"
+        "    balance = aircraft.get_balance()\n"
+        "    return weight <= MAX_WEIGHT and MIN_BALANCE <= balance <= MAX_BALANCE\n"
+        "```\n\n"
+        "> **提示：** 飞行前务必完成所有检查项，确保飞行安全。\n\n"
+        "---\n\n"
+        "*来源：航空飞行知识库中文示例*"
     )
     messages = [
         {"role": "user", "content": message, "ts": 1000},
@@ -98,14 +122,13 @@ def _mock_chat(payload):
 
 def _mock_chat_suggestions(payload):
     """POST /api/chat/suggestions — 模拟推荐追问"""
-    # TODO: 根据 question/answer 上下文返回不同的追问
     return {
         "ok": True,
         "session": payload.get("session", ""),
         "suggestions": [
-            "Mock 追问一：能否详细说明？",
-            "Mock 追问二：有哪些相关案例？",
-            "Mock 追问三：适用范围是什么？",
+            "目视飞行规则的最低天气标准是什么？",
+            "按照仪表飞行规则飞行的航空器需要哪些设备？",
+            "航空器在什么情况下可以改为按目视飞行规则飞行？",
         ],
         "meta": {"mode": "mock"},
     }
@@ -172,17 +195,22 @@ def _mock_wake_check(payload):
 def _mock_knowledge_search(payload):
     """POST /api/knowledge/search — 模拟知识库检索"""
     query = payload.get("query", "")
-    # TODO: 根据 query 返回不同的 mock 检索结果
     return {
         "ok": True,
         "query": query,
-        "knowledge": {"enabled": True, "num_chunks": 0, "num_docs": 0},
+        "knowledge": {"enabled": True, "num_chunks": 4, "num_docs": 2},
         "results": [
             {
-                "text": "[Mock] 这是一条模拟检索结果。",
-                "source": "mock-doc.pdf",
-                "score": 0.9,
+                "text": "航空飞行基础知识文档指出，航空飞行过程通常可以划分为飞行前准备、推出和滑行、起飞、爬升、巡航、下降、进近、着陆和滑入停机位等阶段。",
+                "source": "航空飞行知识库中文示例.txt",
+                "score": 0.92,
                 "page": 1,
+            },
+            {
+                "text": "起飞和着陆阶段对跑道状态、气象条件、航空器性能和空管指令要求较高；巡航阶段更关注航路飞行、高度层保持、燃油管理和空域协调。",
+                "source": "pilot_handbook.pdf",
+                "score": 0.85,
+                "page": 3,
             },
         ],
     }
