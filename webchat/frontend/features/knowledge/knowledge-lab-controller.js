@@ -6,8 +6,10 @@ import { createKnowledgeVisualizationRenderer } from "./knowledge-visualization-
 /**
  * @param {object} opts
  * @param {object} opts.knowledgeService - from services.knowledge
+ * @param {function} [opts.onSwitchTo] - 注册导航切换回调，由 navigation controller 调用
+ * @returns {{ activate: function }} 控制器，调用 activate() 触发数据加载
  */
-export function initKnowledgeLab({ knowledgeService } = {}) {
+export function initKnowledgeLab({ knowledgeService, onSwitchTo } = {}) {
   const elements = {
     kbSearchInput: $("kb-search-input"),
     doSearchBtn: $("do-search-btn"),
@@ -133,6 +135,24 @@ export function initKnowledgeLab({ knowledgeService } = {}) {
   elements.kbTabViz?.addEventListener("click", () => showTab("viz"));
 
   updateQueryCount(elements);
-  loadStatus();
-  loadVisualization();
+
+  // 延迟激活：不在初始化时请求 API，等导航切换或认证完成后再加载
+  let _activated = false;
+
+  function activate() {
+    if (!_activated) {
+      _activated = true;
+      loadStatus();
+      loadVisualization();
+    } else {
+      loadStatus();
+    }
+  }
+
+  // 注册导航切换回调：用户点击"知识库测试"时由 navigation controller 触发
+  if (typeof onSwitchTo === "function") {
+    onSwitchTo(activate);
+  }
+
+  return { activate };
 }

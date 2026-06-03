@@ -1,6 +1,10 @@
 import { $ } from "../../core/dom.js";
 
-export function initNavigation() {
+/**
+ * @param {object} opts
+ * @param {function} [opts.onSwitchTo] - 切换视图时的回调，参数为视图名称（如 "knowledge-lab"）
+ */
+export function initNavigation({ onSwitchTo } = {}) {
   const workspaceView = $("workspace-view");
   const kbTestView = $("kb-test-view");
   const toKbBtn = $("nav-to-kb-btn");
@@ -24,6 +28,12 @@ export function initNavigation() {
     workspaceView.classList.remove("pointer-events-none");
   }
 
-  toKbBtn?.addEventListener("click", showKnowledgeView);
-  backBtn?.addEventListener("click", showWorkspaceView);
+  toKbBtn?.addEventListener("click", () => {
+    showKnowledgeView();
+    if (typeof onSwitchTo === "function") onSwitchTo("knowledge-lab");
+  });
+  backBtn?.addEventListener("click", () => {
+    showWorkspaceView();
+    if (typeof onSwitchTo === "function") onSwitchTo("workspace");
+  });
 }

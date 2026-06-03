@@ -31,8 +31,19 @@ document.addEventListener("DOMContentLoaded", () => {
   renderAppContextStatus(context);
   if (!context.token) renderAuthCheckStatus("warn", "未认证");
 
-  initNavigation();
-  initKnowledgeLab({ knowledgeService: services.knowledge });
+  // 知识库激活回调：navigation controller 切换到知识库视图时触发
+  let kbActivateCallback = null;
+  const registerKbActivate = (fn) => { kbActivateCallback = fn; };
+
+  initNavigation({
+    onSwitchTo: (view) => {
+      if (view === "knowledge-lab" && kbActivateCallback) kbActivateCallback();
+    },
+  });
+  initKnowledgeLab({
+    knowledgeService: services.knowledge,
+    onSwitchTo: registerKbActivate,
+  });
   initKnowledgeToggle({
     initialEnabled: context.settings.knowledgeEnabled,
     onChange: (enabled) => {
@@ -64,6 +75,8 @@ document.addEventListener("DOMContentLoaded", () => {
       composer.setEnabled(true);
       sessionList.setEnabled(true);
       void sessionList.refresh();
+      // 认证完成后加载知识库状态，确保 token 已就绪
+      if (kbActivateCallback) kbActivateCallback();
     },
   });
   if (context.token) void authCard.verifyCurrentToken({ silent: true });
@@ -136,7 +149,6 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // 认证成功后启动唤醒监听
-  const origOnAuthenticated = authCard.verifyCurrentToken;
   // Wake is enabled by default after auth if wakePhrase is set
   if (context.token && context.settings?.wakePhrase) {
     // Delay wake start to avoid conflict with initial load
