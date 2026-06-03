@@ -12,6 +12,7 @@ export const STORAGE_KEYS = {
   wakePhrase: "openclaw-webchat-wake-phrase",
   voiceInputMode: "openclaw-webchat-voice-input-mode",
   autoPrependWake: "openclaw-webchat-auto-prepend-wake",
+  streamingMode: "openclaw-webchat-streaming-mode",
 };
 
 export function readLocal(key, fallback = "") {

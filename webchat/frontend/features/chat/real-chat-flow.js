@@ -1,4 +1,5 @@
 import { makeId } from "../../core/ids.js";
+import { normalizeWakeText } from "../wake/wake-utils.js";
 
 // Configure marked for GFM + line breaks
 if (typeof marked !== "undefined") {
@@ -180,6 +181,50 @@ function showDone(requestId, reply, citations) {
     finalReply.classList.remove("hidden");
     finalReply.classList.add("flex", "message-anim");
   }
+}
+
+// 假流式输出：逐段显示文字
+function showDoneStreaming(requestId, reply, citations, onComplete) {
+  collapseProgress(requestId, false);
+
+  const finalReply = document.getElementById(`final-reply-${requestId}`);
+  const finalText = document.getElementById(`final-text-${requestId}`);
+  const citationBox = document.getElementById(`kb-citations-${requestId}`);
+
+  if (!finalText || !reply) {
+    showDone(requestId, reply, citations);
+    if (typeof onComplete === "function") onComplete();
+    return;
+  }
+
+  if (finalReply) {
+    finalReply.classList.remove("hidden");
+    finalReply.classList.add("flex", "message-anim");
+  }
+
+  const chars = [...reply];
+  const CHUNK = 5;
+  const DELAY = 20;
+  let i = 0;
+
+  function tick() {
+    i = Math.min(i + CHUNK, chars.length);
+    const chunk = chars.slice(0, i).join("");
+    const html = typeof marked !== "undefined"
+      ? marked.parse(chunk)
+      : escapeHtml(chunk).replace(/\n/g, "<br>");
+    finalText.innerHTML = `<div class="markdown-body">${html}</div>`;
+    if (i < chars.length) {
+      requestAnimationFrame(() => setTimeout(tick, DELAY));
+    } else {
+      // 流式结束后显示 citations
+      if (citationBox) citationBox.innerHTML = renderCitationItems(citations, requestId);
+      // 流式结束后触发回调（加载推荐追问等）
+      if (typeof onComplete === "function") onComplete();
+    }
+  }
+
+  requestAnimationFrame(tick);
 }
 
 function showError(requestId, err) {
@@ -364,8 +409,18 @@ export function createRealChatFlow({ chatContainer, chatService, ttsService, con
     appendAssistantShell(chatContainer, requestId);
 
     try {
-      // Step 1: 声纹与唤醒词检测 (快速完成，模拟短暂延迟)
+      // Step 1: 声纹与唤醒词检测
       updateStep(requestId, 1, "active");
+      const wakePhrase = context?.settings?.wakePhrase || "";
+      if (wakePhrase) {
+        const inputNorm = normalizeWakeText(text);
+        const phraseNorm = normalizeWakeText(wakePhrase);
+        if (!inputNorm.includes(phraseNorm)) {
+          updateStep(requestId, 1, "error");
+          showError(requestId, `请先说唤醒词「${wakePhrase}」再提问`);
+          return;
+        }
+      }
       await delay(300);
       updateStep(requestId, 1, "done");
 
@@ -384,7 +439,41 @@ export function createRealChatFlow({ chatContainer, chatService, ttsService, con
       const citations = Array.isArray(data?.meta?.knowledge?.citations) ? data.meta.knowledge.citations : [];
       updateStep(requestId, 2, "done");
 
-      // Step 3: TTS 语音生成
+      // Agent 完成后立即显示文字（不等 TTS）
+      // 推荐追问统一抽成函数，流式模式下等文字弹完再调用
+      function loadSuggestions() {
+        if (!(isKnowledgeEnabled() && citations.length && reply)) return;
+        const sugArea = document.getElementById(`suggestion-area-${requestId}`);
+        if (sugArea) {
+          sugArea.classList.remove("hidden");
+          sugArea.classList.add("flex", "message-anim");
+          chatContainer.scrollTo({ top: chatContainer.scrollHeight, behavior: "smooth" });
+        }
+        chatService.suggestions({
+          session: context.session,
+          question: text,
+          answer: reply,
+          citations,
+          requestId,
+        }).then((sugData) => {
+          const suggestions = Array.isArray(sugData?.suggestions) ? sugData.suggestions : [];
+          showSuggestions(requestId, suggestions);
+        }).catch((sugErr) => {
+          console.error("推荐追问生成失败:", sugErr);
+          if (sugArea) sugArea.classList.add("hidden");
+        });
+      }
+
+      if (context.settings.streamingMode) {
+        // 流式：文字弹完后加载推荐追问
+        showDoneStreaming(requestId, reply, citations, loadSuggestions);
+      } else {
+        // 整段：直接显示文字，推荐追问异步加载
+        showDone(requestId, reply, citations);
+        loadSuggestions();
+      }
+
+      // Step 3: TTS 语音生成（异步，不阻塞文字显示）
       if (context.settings.autoTts && reply && ttsService) {
         updateStep(requestId, 3, "active");
         try {
@@ -397,10 +486,7 @@ export function createRealChatFlow({ chatContainer, chatService, ttsService, con
           });
           updateStep(requestId, 3, "done");
 
-          // 显示最终回复
-          showDone(requestId, reply, citations);
-
-          // 播放 TTS
+          // TTS 完成后只添加音频播放按钮
           if (ttsData?.audio?.url) {
             const audioUrl = ttsService.withTokenUrl(ttsData.audio.url);
             appendTtsAudio(requestId, audioUrl);
@@ -412,38 +498,6 @@ export function createRealChatFlow({ chatContainer, chatService, ttsService, con
         } catch (ttsErr) {
           console.error("TTS 合成失败:", ttsErr);
           updateStep(requestId, 3, "error");
-          // TTS 失败但仍显示文本回复
-          showDone(requestId, reply, citations);
-        }
-      } else {
-        // 无 TTS，直接显示回复
-        showDone(requestId, reply, citations);
-      }
-
-      // 推荐追问：有 citations 时调用 suggestions API
-      if (isKnowledgeEnabled() && citations.length && reply) {
-        // 先显示推荐对话区（加载状态）
-        const sugArea = document.getElementById(`suggestion-area-${requestId}`);
-        if (sugArea) {
-          sugArea.classList.remove("hidden");
-          sugArea.classList.add("flex", "message-anim");
-          chatContainer.scrollTo({ top: chatContainer.scrollHeight, behavior: "smooth" });
-        }
-
-        try {
-          const sugData = await chatService.suggestions({
-            session: context.session,
-            question: text,
-            answer: reply,
-            citations,
-            requestId,
-          });
-          const suggestions = Array.isArray(sugData?.suggestions) ? sugData.suggestions : [];
-          showSuggestions(requestId, suggestions);
-        } catch (sugErr) {
-          console.error("推荐追问生成失败:", sugErr);
-          // 失败时隐藏推荐区域
-          if (sugArea) sugArea.classList.add("hidden");
         }
       }
 

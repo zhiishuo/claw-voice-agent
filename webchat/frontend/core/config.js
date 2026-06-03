@@ -8,4 +8,5 @@ export const DEFAULT_CONFIG = {
   wakePhrase: "你好",
   voiceInputMode: "ptt",
   autoPrependWake: true,
+  streamingMode: true,
 };

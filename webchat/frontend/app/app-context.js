@@ -19,11 +19,12 @@ export function createAppContext() {
       transcriptLanguage: readLocal(STORAGE_KEYS.language, DEFAULT_CONFIG.transcriptLanguage),
       knowledgeEnabled: readLocal(STORAGE_KEYS.knowledgeEnabled, DEFAULT_CONFIG.knowledgeEnabled ? "1" : "0") !== "0",
       autoTts: readLocal(STORAGE_KEYS.autoTts, DEFAULT_CONFIG.autoTts ? "1" : "0") !== "0",
-      autoPlay: readLocal("openclaw-webchat-auto-play", "1") !== "0",
+      autoPlay: readLocal("openclaw-webchat-auto-play", "0") !== "0",
       ttsMode: readLocal(STORAGE_KEYS.ttsMode, DEFAULT_CONFIG.ttsMode),
       ttsVoice: readLocal(STORAGE_KEYS.ttsVoice, DEFAULT_CONFIG.ttsVoice),
       autoPrependWake: readLocal(STORAGE_KEYS.autoPrependWake, "1") !== "0",
       wakePhrase: readLocal(STORAGE_KEYS.wakePhrase, DEFAULT_CONFIG.wakePhrase),
+      streamingMode: readLocal(STORAGE_KEYS.streamingMode, DEFAULT_CONFIG.streamingMode ? "1" : "0") !== "0",
     },
   };
 }

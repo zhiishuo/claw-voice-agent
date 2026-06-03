@@ -81,6 +81,7 @@ export function initSettingsModal({ context, debugService } = {}) {
   const autoPlayCheckbox = $("setting-auto-play");
   const autoSendCheckbox = $("setting-auto-send");
   const autoPrependWakeCheckbox = $("setting-auto-prepend-wake");
+  const streamingModeCheckbox = $("setting-streaming-mode");
 
   // Debug modal elements
   const openDebugBtn = $("open-debug-btn");
@@ -112,9 +113,10 @@ export function initSettingsModal({ context, debugService } = {}) {
     if (voiceTypeSelect) voiceTypeSelect.value = readLocal(STORAGE_KEYS.ttsVoice, "zh-CN-XiaoxiaoNeural");
     if (voiceModeSelect) voiceModeSelect.value = readLocal(STORAGE_KEYS.voiceInputMode, "ptt");
     if (autoTtsCheckbox) autoTtsCheckbox.checked = readLocal(STORAGE_KEYS.autoTts, "1") !== "0";
-    if (autoPlayCheckbox) autoPlayCheckbox.checked = readLocal("openclaw-webchat-auto-play", "1") !== "0";
+    if (autoPlayCheckbox) autoPlayCheckbox.checked = readLocal("openclaw-webchat-auto-play", "0") !== "0";
     if (autoSendCheckbox) autoSendCheckbox.checked = readLocal(STORAGE_KEYS.autoSend, "0") !== "0";
     if (autoPrependWakeCheckbox) autoPrependWakeCheckbox.checked = readLocal(STORAGE_KEYS.autoPrependWake, "1") !== "0";
+    if (streamingModeCheckbox) streamingModeCheckbox.checked = readLocal(STORAGE_KEYS.streamingMode, "1") !== "0";
   }
 
   function saveFormToSettings() {
@@ -127,6 +129,7 @@ export function initSettingsModal({ context, debugService } = {}) {
     const autoPlay = autoPlayCheckbox?.checked ?? true;
     const autoSend = autoSendCheckbox?.checked ?? false;
     const autoPrependWake = autoPrependWakeCheckbox?.checked ?? true;
+    const streamingMode = streamingModeCheckbox?.checked ?? true;
 
     writeLocal(STORAGE_KEYS.wakePhrase, wakePhrase);
     writeLocal(STORAGE_KEYS.language, language);
@@ -137,6 +140,7 @@ export function initSettingsModal({ context, debugService } = {}) {
     writeLocal("openclaw-webchat-auto-play", autoPlay ? "1" : "0");
     writeLocal(STORAGE_KEYS.autoSend, autoSend ? "1" : "0");
     writeLocal(STORAGE_KEYS.autoPrependWake, autoPrependWake ? "1" : "0");
+    writeLocal(STORAGE_KEYS.streamingMode, streamingMode ? "1" : "0");
 
     if (context?.settings) {
       context.settings.transcriptLanguage = language;
@@ -145,6 +149,7 @@ export function initSettingsModal({ context, debugService } = {}) {
       context.settings.autoTts = autoTts;
       context.settings.autoPlay = autoPlay;
       context.settings.autoPrependWake = autoPrependWake;
+      context.settings.streamingMode = streamingMode;
     }
   }
 

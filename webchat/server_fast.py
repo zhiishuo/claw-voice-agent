@@ -1660,18 +1660,23 @@ def list_sessions():
             continue
         updated_at = 0
         preview = ""
-        for msg in reversed(messages):
+        title = ""
+        for msg in messages:
             ts = msg.get("ts") or 0
             if ts and (not updated_at or ts > updated_at):
                 updated_at = ts
+            if not title and msg.get("role") == "user":
+                text = str(msg.get("content") or "").strip()
+                if text:
+                    title = text[:20]
+        for msg in reversed(messages):
             if not preview and msg.get("role") in ("user", "assistant"):
                 text = str(msg.get("content") or "").strip()
                 if text:
                     preview = text[:80]
         sessions.append({
             "id": session_id,
-            "title": f"会话 {session_id}",
-            "preview": preview or session_id,
+            "title": title or f"会话 {session_id}",
             "messageCount": len(messages),
             "updatedAt": updated_at or int(path.stat().st_mtime * 1000),
         })
