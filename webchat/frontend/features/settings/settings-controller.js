@@ -82,6 +82,7 @@ export function initSettingsModal({ context, debugService } = {}) {
   const autoSendCheckbox = $("setting-auto-send");
   const autoPrependWakeCheckbox = $("setting-auto-prepend-wake");
   const streamingModeCheckbox = $("setting-streaming-mode");
+  const wakeDetectionCheckbox = $("setting-wake-detection");
 
   // Debug modal elements
   const openDebugBtn = $("open-debug-btn");
@@ -117,6 +118,7 @@ export function initSettingsModal({ context, debugService } = {}) {
     if (autoSendCheckbox) autoSendCheckbox.checked = readLocal(STORAGE_KEYS.autoSend, "0") !== "0";
     if (autoPrependWakeCheckbox) autoPrependWakeCheckbox.checked = readLocal(STORAGE_KEYS.autoPrependWake, "1") !== "0";
     if (streamingModeCheckbox) streamingModeCheckbox.checked = readLocal(STORAGE_KEYS.streamingMode, "1") !== "0";
+    if (wakeDetectionCheckbox) wakeDetectionCheckbox.checked = readLocal(STORAGE_KEYS.wakeDetection, "1") !== "0";
   }
 
   function saveFormToSettings() {
@@ -130,6 +132,7 @@ export function initSettingsModal({ context, debugService } = {}) {
     const autoSend = autoSendCheckbox?.checked ?? false;
     const autoPrependWake = autoPrependWakeCheckbox?.checked ?? true;
     const streamingMode = streamingModeCheckbox?.checked ?? true;
+    const wakeDetection = wakeDetectionCheckbox?.checked ?? true;
 
     writeLocal(STORAGE_KEYS.wakePhrase, wakePhrase);
     writeLocal(STORAGE_KEYS.language, language);
@@ -141,6 +144,7 @@ export function initSettingsModal({ context, debugService } = {}) {
     writeLocal(STORAGE_KEYS.autoSend, autoSend ? "1" : "0");
     writeLocal(STORAGE_KEYS.autoPrependWake, autoPrependWake ? "1" : "0");
     writeLocal(STORAGE_KEYS.streamingMode, streamingMode ? "1" : "0");
+    writeLocal(STORAGE_KEYS.wakeDetection, wakeDetection ? "1" : "0");
 
     if (context?.settings) {
       context.settings.transcriptLanguage = language;
@@ -150,6 +154,7 @@ export function initSettingsModal({ context, debugService } = {}) {
       context.settings.autoPlay = autoPlay;
       context.settings.autoPrependWake = autoPrependWake;
       context.settings.streamingMode = streamingMode;
+      context.settings.wakeDetection = wakeDetection;
     }
   }
 

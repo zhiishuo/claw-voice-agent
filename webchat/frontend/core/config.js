@@ -9,4 +9,5 @@ export const DEFAULT_CONFIG = {
   voiceInputMode: "ptt",
   autoPrependWake: true,
   streamingMode: true,
+  wakeDetection: true,
 };

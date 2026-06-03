@@ -411,14 +411,17 @@ export function createRealChatFlow({ chatContainer, chatService, ttsService, con
     try {
       // Step 1: 声纹与唤醒词检测
       updateStep(requestId, 1, "active");
-      const wakePhrase = context?.settings?.wakePhrase || "";
-      if (wakePhrase) {
-        const inputNorm = normalizeWakeText(text);
-        const phraseNorm = normalizeWakeText(wakePhrase);
-        if (!inputNorm.includes(phraseNorm)) {
-          updateStep(requestId, 1, "error");
-          showError(requestId, `请先说唤醒词「${wakePhrase}」再提问`);
-          return;
+      const wakeDetection = context?.settings?.wakeDetection !== false;
+      if (wakeDetection) {
+        const wakePhrase = context?.settings?.wakePhrase || "";
+        if (wakePhrase) {
+          const inputNorm = normalizeWakeText(text);
+          const phraseNorm = normalizeWakeText(wakePhrase);
+          if (!inputNorm.includes(phraseNorm)) {
+            updateStep(requestId, 1, "error");
+            showError(requestId, `请先说唤醒词「${wakePhrase}」再提问`);
+            return;
+          }
         }
       }
       await delay(300);

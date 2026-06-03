@@ -25,6 +25,7 @@ export function createAppContext() {
       autoPrependWake: readLocal(STORAGE_KEYS.autoPrependWake, "1") !== "0",
       wakePhrase: readLocal(STORAGE_KEYS.wakePhrase, DEFAULT_CONFIG.wakePhrase),
       streamingMode: readLocal(STORAGE_KEYS.streamingMode, DEFAULT_CONFIG.streamingMode ? "1" : "0") !== "0",
+      wakeDetection: readLocal(STORAGE_KEYS.wakeDetection, DEFAULT_CONFIG.wakeDetection ? "1" : "0") !== "0",
     },
   };
 }
