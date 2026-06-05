@@ -488,7 +488,8 @@
 }
 
 .kb-viz-canvas,
-.kb-viz-overlay {
+.kb-viz-overlay,
+.kb-viz-echarts {
     position: absolute;
     inset: 0;
     width: 100%;
@@ -501,6 +502,10 @@
 
 .kb-viz-canvas {
     pointer-events: none;
+}
+
+.kb-viz-echarts {
+    z-index: 1;
 }
 
 .kb-viz-hit-point,
