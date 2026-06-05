@@ -23,8 +23,8 @@ class KnowledgeRetriever:
         query_vector: np.ndarray | None = None,
         top_k: int = 5,
         mode: str = "hybrid",
-        vector_weight: float = 0.45,
-        keyword_weight: float = 0.55,
+        vector_weight: float = 0.7,
+        keyword_weight: float = 0.3,
     ) -> list[dict]:
         mode = mode.lower()
         if mode not in {"vector", "keyword", "hybrid"}:

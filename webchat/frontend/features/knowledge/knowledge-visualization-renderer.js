@@ -6,6 +6,7 @@ import {
   scoreStats,
   titleOf,
 } from "./knowledge-lab-utils.js";
+import { createKnowledgeVectorEchartsRenderer } from "./knowledge-vector-echarts-renderer.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const VIEWBOX = { width: 1180, height: 640, pad: 44 };
@@ -127,17 +128,12 @@ function isDegenerate(points) {
 }
 
 function localPositions(hitPoints, queryPoint) {
-  if (!hitPoints.length) return [];
-  const raw = hitPoints.map(({ point, result, rank }) => ({ x: numberValue(point.x), y: numberValue(point.y), result, rank }));
-  if (isDegenerate(raw)) {
-    const count = raw.length;
-    return raw.map((item, index) => {
-      const angle = (Math.PI * 2 * index) / Math.max(count, 1) - Math.PI / 2;
-      const radius = count <= 2 ? 0.42 : 0.34 + (index % 2) * 0.12;
-      return { ...item, x: queryPoint.x + Math.cos(angle) * radius, y: queryPoint.y + Math.sin(angle) * radius };
-    });
-  }
-  return raw;
+  return hitPoints.map(({ point, result, rank }) => ({
+    x: numberValue(point.x),
+    y: numberValue(point.y),
+    result,
+    rank,
+  }));
 }
 
 function fitLocalProjector(points, queryPoint) {
@@ -166,6 +162,7 @@ export function createKnowledgeVisualizationRenderer(kbVizContent) {
   let visualizationError = "";
   let pointIndex = null;
   let pointIndexKey = "";
+  let vectorMapRenderer = null;
 
   function setVisualization(viz) {
     if (viz?.available && Array.isArray(viz.points) && viz.points.length) {
@@ -256,6 +253,8 @@ export function createKnowledgeVisualizationRenderer(kbVizContent) {
 
   function render(results, query) {
     if (!kbVizContent) return;
+    vectorMapRenderer?.dispose?.();
+    vectorMapRenderer = null;
     if (kbVisualization?.points?.length) {
       renderWholeKbViz(kbVisualization, results, query);
     } else if (results?.length) {
@@ -272,91 +271,27 @@ export function createKnowledgeVisualizationRenderer(kbVizContent) {
       return point ? { point, result, rank: resultIndex + 1 } : null;
     }).filter(Boolean);
     const queryPoint = approximateQueryPoint(hitPoints, results);
-    const queryProjected = projectPoint(queryPoint);
     const stats = scoreStats(results);
-    const view = { scale: 1, tx: 0, ty: 0 };
-    const displayHits = displayHitsForMap(hitPoints, queryProjected, stats);
 
     const shell = document.createElement("div");
     shell.className = "kb-viz-shell";
 
     const main = document.createElement("div");
     main.className = "kb-viz-map";
-    const canvas = document.createElement("canvas");
-    canvas.className = "kb-viz-canvas";
-    const infoBox = document.createElement("div");
-    infoBox.className = "kb-viz-point-info hidden";
+    const chartEl = document.createElement("div");
+    chartEl.className = "kb-viz-echarts";
     const controls = document.createElement("div");
     controls.className = "kb-map-controls";
     controls.innerHTML = `
       <button type="button" data-action="zoom-in" title="放大"><i class="fa-solid fa-plus"></i></button>
       <button type="button" data-action="zoom-out" title="缩小"><i class="fa-solid fa-minus"></i></button>
+      <button type="button" data-action="focus" title="聚焦 Query 和 Top-K"><i class="fa-solid fa-location-crosshairs"></i></button>
       <button type="button" data-action="reset" title="重置"><i class="fa-solid fa-expand"></i></button>
       <span class="kb-map-scale">100%</span>
     `;
 
-    const overlay = svgEl("svg", { viewBox: `0 0 ${VIEWBOX.width} ${VIEWBOX.height}`, preserveAspectRatio: "none", class: "kb-viz-overlay", role: "img" });
-    const overlayViewport = svgEl("g", { class: "kb-viz-overlay-viewport" });
-    displayHits.forEach(({ projected, display, expanded, result, rank }) => {
-      const ratio = scoreRatio(result, stats);
-      overlayViewport.appendChild(svgEl("line", {
-        x1: queryProjected.x,
-        y1: queryProjected.y,
-        x2: projected.x,
-        y2: projected.y,
-        stroke: scoreColor(ratio),
-        "stroke-width": (2.2 + ratio * 6.2).toFixed(2),
-        "stroke-linecap": "round",
-        "pointer-events": "none",
-      }));
-      if (expanded) {
-        overlayViewport.appendChild(svgEl("line", {
-          x1: projected.x,
-          y1: projected.y,
-          x2: display.x,
-          y2: display.y,
-          stroke: "#145dff",
-          "stroke-width": "1.6",
-          "stroke-dasharray": "5 4",
-          opacity: "0.72",
-          "pointer-events": "none",
-        }));
-      }
-      const anchor = svgEl("circle", { cx: projected.x, cy: projected.y, r: 4.5, fill: "#145dff", stroke: "#ffffff", "stroke-width": "1.4", opacity: 0.98, "pointer-events": "none" });
-      overlayViewport.appendChild(anchor);
-      const hitCircle = svgEl("circle", { cx: display.x, cy: display.y, r: 13 + ratio * 4, fill: "rgba(20, 93, 255, 0.2)", stroke: "#145dff", "stroke-width": "2.2", opacity: 0.98, class: "kb-viz-hit-point" });
-      hitCircle.addEventListener("click", (event) => {
-        event.stopPropagation();
-        showPointInfo(infoBox, display, view, {
-          title: `#${rank} ${titleOf(result, rank - 1)}`,
-          meta: `score ${typeof result.score === "number" ? result.score.toFixed(4) : "n/a"}`,
-          text: result.text || "",
-        });
-      });
-      overlayViewport.appendChild(hitCircle);
-      const label = svgEl("text", { x: display.x + 13, y: display.y - 11, fill: "#0f45c9", "font-size": "14", "font-weight": "800", "pointer-events": "none" });
-      label.textContent = `#${rank}`;
-      overlayViewport.appendChild(label);
-    });
-    const queryCircle = svgEl("circle", { cx: queryProjected.x, cy: queryProjected.y, r: 15, fill: "rgba(239, 35, 60, 0.16)", stroke: "#ef233c", "stroke-width": "2.2", opacity: 0.98, class: "kb-viz-query-point" });
-    queryCircle.addEventListener("click", (event) => {
-      event.stopPropagation();
-      showPointInfo(infoBox, queryProjected, view, {
-        title: "用户问题近似位置",
-        meta: `query="${query || ""}"`,
-        text: "红点为当前问题向量根据 Top-K 命中点估算的二维位置。",
-      });
-    });
-    overlayViewport.appendChild(queryCircle);
-    const queryLabel = svgEl("text", { x: queryProjected.x, y: queryProjected.y + 5, fill: "#fff", "font-size": "12", "text-anchor": "middle", "font-weight": "800" });
-    queryLabel.textContent = "Q";
-    overlayViewport.appendChild(queryLabel);
-    overlay.appendChild(overlayViewport);
-
-    main.appendChild(canvas);
-    main.appendChild(overlay);
+    main.appendChild(chartEl);
     main.appendChild(controls);
-    main.appendChild(infoBox);
 
     const mainWrap = document.createElement("div");
     mainWrap.className = "kb-viz-main-col";
@@ -367,7 +302,8 @@ export function createKnowledgeVisualizationRenderer(kbVizContent) {
 
     kbVizContent.innerHTML = "";
     kbVizContent.appendChild(shell);
-    installMapInteractions({ main, canvas, overlayViewport, controls, infoBox, viz, hitPoints, queryPoint, stats, view });
+    vectorMapRenderer = createKnowledgeVectorEchartsRenderer({ chartEl, controls });
+    vectorMapRenderer.render?.({ viz, hitPoints, queryPoint, stats, query });
   }
 
   function installMapInteractions({ main, canvas, overlayViewport, controls, infoBox, viz, hitPoints, queryPoint, stats, view }) {
@@ -517,7 +453,7 @@ export function createKnowledgeVisualizationRenderer(kbVizContent) {
 
     panel.innerHTML = `
       <div class="kb-viz-local-title">局部放大</div>
-      <div class="kb-viz-local-note">蓝点为当前 Top-K，连线粗细和颜色深浅按当前 Top-K 相关性归一化。</div>
+      <div class="kb-viz-local-note">基于左侧全库向量图的真实二维位置裁剪放大，蓝点为当前 Top-K。</div>
     `;
     panel.appendChild(svg);
     return panel;
