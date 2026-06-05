@@ -444,7 +444,7 @@ export function createRealChatFlow({ chatContainer, chatService, ttsService, con
     try {
       // Step 1: 声纹与唤醒词检测
       updateStep(requestId, 1, "active");
-      const wakeDetection = context?.settings?.wakeDetection !== false;
+      const wakeDetection = false;
       if (wakeDetection) {
         // 如果会话已通过唤醒验证，跳过此步骤
         if (context?.sessionVerified?.get(context.session)) {
