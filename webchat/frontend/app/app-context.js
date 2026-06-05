@@ -15,6 +15,8 @@ export function createAppContext() {
     token,
     session,
     clientId,
+    // 每个 session 是否已通过唤醒词+声纹验证
+    sessionVerified: new Map(),
     settings: {
       transcriptLanguage: readLocal(STORAGE_KEYS.language, DEFAULT_CONFIG.transcriptLanguage),
       knowledgeEnabled: readLocal(STORAGE_KEYS.knowledgeEnabled, DEFAULT_CONFIG.knowledgeEnabled ? "1" : "0") !== "0",

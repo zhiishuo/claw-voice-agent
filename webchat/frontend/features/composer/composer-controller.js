@@ -108,7 +108,7 @@ export function initComposer({ textarea, sendBtn, chatContainer, onSubmit, conte
     chatContainer.scrollTo({ top: chatContainer.scrollHeight, behavior: "smooth" });
 
     try {
-      await onSubmit?.(text || "[语音消息]");
+      await onSubmit?.(text || "[语音消息]", { skipUserBubble: true });
     } finally {
       sending = false;
       sendBtn.innerHTML = '<i class="fa-solid fa-arrow-up"></i>';

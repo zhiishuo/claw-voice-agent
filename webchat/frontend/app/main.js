@@ -17,6 +17,7 @@ import { initAudioImport } from "../features/voice/audio-import-controller.js";
 import { createTranscriptReview } from "../features/voice/transcript-review.js";
 import { initVoiceModeToggle } from "../features/voice/voice-mode-controller.js";
 import { initWakeListener } from "../features/wake/wake-listener-controller.js";
+import { initWakeCard } from "../features/wake/wake-card-controller.js";
 import { initVoiceprint } from "../features/voiceprint/voiceprint-controller.js";
 import { STORAGE_KEYS, writeLocal } from "../core/storage.js";
 import { createServices } from "../services/index.js";
@@ -53,18 +54,38 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   initSidebar();
 
+  const micDropdown = initMicDropdown();
+
+  // --- 唤醒卡片 (首次会话验证) ---
+  const wakeCard = initWakeCard({
+    wakeService: services.wake,
+    context,
+    getDeviceId: () => micDropdown.getSelectedDeviceId(),
+    onWakeSuccess: ({ text, audioBlob }) => {
+      // 标记当前 session 已验证
+      context.sessionVerified.set(context.session, true);
+      // 直接发送第一条消息（带语音条）
+      const audioUrl = audioBlob ? URL.createObjectURL(audioBlob) : undefined;
+      chatFlow.sendMessage(text, audioUrl);
+    },
+  });
+
   const sessionList = initSessionList({
     context,
     sessionService: services.sessions,
     chatContainer,
     enabled: !!context.token,
+    onSessionChange: () => {
+      // 切换会话后，隐藏当前唤醒卡片并检查新会话是否需要唤醒
+      wakeCard.hide();
+      checkAndShowWakeCard();
+    },
   });
   const sessionContextMenu = initSessionContextMenu({
     onDelete: (session) => void sessionList.deleteSession(session),
   });
-  const micDropdown = initMicDropdown();
 
-  const settingsCtrl = initSettingsModal({ context, debugService: services.debug });
+  const settingsCtrl = initSettingsModal({ context, debugService: services.debug, speakerService: services.speaker });
   initAudioPlaybackGlobals();
   initCitationTabGlobals();
   initVoiceModeToggle();
@@ -77,6 +98,8 @@ document.addEventListener("DOMContentLoaded", () => {
       void sessionList.refresh();
       // 认证完成后加载知识库状态，确保 token 已就绪
       if (kbActivateCallback) kbActivateCallback();
+      // 检查是否需要显示唤醒卡片
+      checkAndShowWakeCard();
     },
   });
   if (context.token) void authCard.verifyCurrentToken({ silent: true });
@@ -101,7 +124,7 @@ document.addEventListener("DOMContentLoaded", () => {
     textarea,
     sendBtn,
     chatContainer,
-    onSubmit: (text) => chatFlow.sendMessage(text),
+    onSubmit: (text, opts) => chatFlow.sendMessage(text, undefined, opts),
     context,
   });
 
@@ -146,11 +169,12 @@ document.addEventListener("DOMContentLoaded", () => {
     },
   });
 
-  // 认证成功后启动唤醒监听
-  // Wake is enabled by default after auth if wakePhrase is set
-  if (context.token && context.settings?.wakePhrase) {
-    // Delay wake start to avoid conflict with initial load
-    setTimeout(() => wakeListener.enable(), 3000);
+  // 认证成功后，检查是否需要显示唤醒卡片
+  function checkAndShowWakeCard() {
+    if (!context.token) return;
+    if (!context.settings?.wakeDetection) return;
+    if (context.sessionVerified.get(context.session)) return;
+    wakeCard.show();
   }
 
   // --- 声纹注册 ---

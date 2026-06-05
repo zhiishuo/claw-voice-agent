@@ -130,14 +130,17 @@
                                 <!-- 中心频率波纹 (JS动态驱动) -->
                                 <div id="freq-container" class="flex items-center gap-[2px] h-8 flex-1 justify-center px-2">
                                 </div>
-                                <button id="cancel-record-btn" class="text-[11px] font-medium text-gray-500 hover:text-red-500 px-3 py-1.5 bg-white border border-gray-200 shadow-sm rounded-full transition-colors flex-shrink-0 w-[52px]">取消</button>
+                                <div class="flex items-center gap-1.5 flex-shrink-0">
+                                    <button id="confirm-record-btn" class="text-[11px] font-medium text-white hover:bg-green-600 px-3 py-1.5 bg-green-500 shadow-sm rounded-full transition-colors w-[52px]">完成</button>
+                                    <button id="cancel-record-btn" class="text-[11px] font-medium text-gray-500 hover:text-red-500 px-3 py-1.5 bg-white border border-gray-200 shadow-sm rounded-full transition-colors w-[52px]">取消</button>
+                                </div>
                             </div>
                         </div>
                         
                         <!-- 发送按钮组 -->
-                        <div class="flex items-center gap-2 mb-1 ml-2 flex-shrink-0">
-                            <button id="hold-to-talk-btn" class="flex items-center justify-center gap-1 bg-green-500 hover:bg-green-600 text-white rounded-full px-3 py-1.5 transition-colors text-xs font-medium select-none">
-                                <i class="fa-solid fa-microphone"></i> <span class="hidden sm:inline">点击说话</span>
+                        <div id="send-btn-group" class="flex items-center gap-2 mb-1 ml-2 flex-shrink-0">
+                            <button id="hold-to-talk-btn" class="w-8 h-8 flex items-center justify-center bg-green-500 hover:bg-green-600 text-white rounded-full transition-colors select-none">
+                                <i class="fa-solid fa-microphone text-sm"></i>
                             </button>
                             <button id="send-btn" class="w-8 h-8 flex items-center justify-center bg-gray-300 text-white rounded-full transition-colors cursor-not-allowed">
                                 <i class="fa-solid fa-arrow-up"></i>
@@ -325,7 +328,7 @@
 
     <!-- ==================== 设置模态框 (Settings Modal) ==================== -->
     <div id="settings-modal" class="hidden fixed inset-0 z-[100] bg-gray-900/40 backdrop-blur-sm flex items-center justify-center transition-opacity duration-300 opacity-0">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transform scale-95 opacity-0 transition-all duration-300" id="settings-modal-content">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden transform scale-95 opacity-0 transition-all duration-300" id="settings-modal-content">
             <!-- Header -->
             <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/80">
                 <h3 class="text-[15px] font-bold text-gray-800 flex items-center gap-2">
@@ -478,6 +481,9 @@
                     <button id="open-trace-btn" class="text-xs text-gray-500 hover:text-gray-800 flex items-center gap-1.5 px-2 py-1 rounded hover:bg-gray-200 transition-colors">
                         <i class="fa-solid fa-clock-rotate-left"></i> 留痕回看
                     </button>
+                    <button id="open-voiceprint-btn" class="text-xs text-gray-500 hover:text-gray-800 flex items-center gap-1.5 px-2 py-1 rounded hover:bg-gray-200 transition-colors">
+                        <i class="fa-solid fa-fingerprint"></i> 声纹库
+                    </button>
                 </div>
                 <div class="flex items-center gap-3">
                     <button id="close-settings-btn" class="px-5 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors shadow-sm">取消</button>
@@ -546,6 +552,27 @@
             <div class="overflow-y-auto max-h-[60vh] p-4">
                 <div id="trace-list" class="space-y-2 text-[12px] text-gray-600">
                     <div class="text-gray-400 py-4 text-center">暂无留痕记录</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 声纹库列表弹窗 -->
+    <div id="voiceprint-modal" class="hidden fixed inset-0 z-[110] bg-gray-900/40 backdrop-blur-sm flex items-center justify-center transition-opacity duration-300 opacity-0">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-hidden transform scale-95 opacity-0 transition-all duration-300" id="voiceprint-modal-content">
+            <div class="px-5 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/80">
+                <div>
+                    <h3 class="text-sm font-bold text-gray-800 flex items-center gap-2"><i class="fa-solid fa-fingerprint text-gray-500"></i> 声纹库列表</h3>
+                    <p id="voiceprint-subtitle" class="text-[11px] text-gray-500 mt-0.5">加载中...</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button id="voiceprint-refresh-btn" class="text-xs text-blue-600 hover:text-blue-800 font-medium px-2 py-1 rounded hover:bg-blue-50">刷新</button>
+                    <button id="voiceprint-close-btn" class="text-gray-400 hover:text-gray-600 w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-200 transition-colors"><i class="fa-solid fa-xmark text-sm"></i></button>
+                </div>
+            </div>
+            <div class="overflow-y-auto max-h-[60vh] p-4">
+                <div id="voiceprint-list" class="space-y-2 text-[12px] text-gray-600">
+                    <div class="text-gray-400 py-4 text-center">加载中...</div>
                 </div>
             </div>
         </div>

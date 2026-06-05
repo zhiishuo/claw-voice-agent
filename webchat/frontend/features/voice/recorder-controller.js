@@ -27,15 +27,19 @@ function formatDuration(seconds) {
  */
 export function initRecorder({ textarea, transcriptionService, transcriptReview, getDeviceId } = {}) {
   const holdToTalkBtn = $("hold-to-talk-btn");
+  const sendBtnGroup = $("send-btn-group");
   const recordingMask = $("recording-mask");
   const recordingTime = $("recording-time");
   const recordingDot = $("recording-dot");
   const freqContainer = $("freq-container");
   const cancelRecordBtn = $("cancel-record-btn");
+  const confirmRecordBtn = $("confirm-record-btn");
 
   let mediaRecorder = null;
   let mediaChunks = [];
   let stream = null;
+  let audioCtx = null;
+  let analyser = null;
   let isRecording = false;
   let recordStartTime = 0;
   let recordTimerInterval = null;
@@ -54,8 +58,8 @@ export function initRecorder({ textarea, transcriptionService, transcriptReview,
   function resetRecordingUi() {
     isRecording = false;
     holdToTalkBtn.classList.remove("hold-to-talk-active");
-    holdToTalkBtn.innerHTML =
-      '<i class="fa-solid fa-microphone"></i> <span class="hidden sm:inline">点击说话</span>';
+    holdToTalkBtn.innerHTML = '<i class="fa-solid fa-microphone text-sm"></i>';
+    if (sendBtnGroup) sendBtnGroup.classList.remove("hidden");
     textarea.classList.remove("opacity-0");
     recordingMask.classList.add("hidden");
     recordingMask.classList.remove("flex");
@@ -63,18 +67,25 @@ export function initRecorder({ textarea, transcriptionService, transcriptReview,
 
   function startFreqAnimation() {
     const bars = freqContainer.children;
-    freqInterval = setInterval(() => {
-      for (let i = 0; i < bars.length; i += 1) {
-        const dist = Math.abs(i - numBars / 2) / (numBars / 2);
-        const maxH = 28 - dist * 20;
-        const h = Math.max(4, Math.random() * maxH);
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    const barCount = bars.length;
+    function draw() {
+      if (!isRecording) return;
+      analyser.getByteFrequencyData(dataArray);
+      const step = Math.floor(dataArray.length / barCount);
+      for (let i = 0; i < barCount; i += 1) {
+        const idx = i * step;
+        const val = dataArray[idx] / 255; // 0-1
+        const h = Math.max(4, val * 28);
         bars[i].style.height = `${h}px`;
       }
-    }, 70);
+      freqInterval = requestAnimationFrame(draw);
+    }
+    freqInterval = requestAnimationFrame(draw);
   }
 
   function stopFreqAnimation() {
-    clearInterval(freqInterval);
+    cancelAnimationFrame(freqInterval);
     freqInterval = null;
     const bars = freqContainer.children;
     for (let i = 0; i < bars.length; i += 1) bars[i].style.height = "4px";
@@ -100,6 +111,13 @@ export function initRecorder({ textarea, transcriptionService, transcriptReview,
       return;
     }
 
+    // 创建 AnalyserNode 用于真实频谱
+    audioCtx = new AudioContext();
+    const source = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+
     isRecording = true;
     recordStartTime = Date.now();
     mediaChunks = [];
@@ -116,8 +134,8 @@ export function initRecorder({ textarea, transcriptionService, transcriptReview,
     recordingTime.classList.remove("animate-pulse", "text-blue-600", "font-bold");
     recordingTime.classList.add("text-gray-600");
     holdToTalkBtn.classList.add("hold-to-talk-active");
-    holdToTalkBtn.innerHTML =
-      '<i class="fa-solid fa-paper-plane"></i> <span class="hidden sm:inline">点击发送</span>';
+    holdToTalkBtn.innerHTML = '<i class="fa-solid fa-paper-plane text-sm"></i>';
+    if (sendBtnGroup) sendBtnGroup.classList.add("hidden");
     textarea.classList.add("opacity-0");
     recordingMask.classList.remove("hidden");
     recordingMask.classList.add("flex");
@@ -151,8 +169,7 @@ export function initRecorder({ textarea, transcriptionService, transcriptReview,
     recordingTime.classList.remove("text-gray-600");
     recordingTime.classList.add("animate-pulse", "text-blue-600", "font-bold");
     holdToTalkBtn.classList.remove("hold-to-talk-active");
-    holdToTalkBtn.innerHTML =
-      '<i class="fa-solid fa-spinner fa-spin"></i> <span class="hidden sm:inline">识别中</span>';
+    holdToTalkBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-sm"></i>';
 
     const stopped = new Promise((resolve) => {
       mediaRecorder.addEventListener("stop", resolve, { once: true });
@@ -170,8 +187,7 @@ export function initRecorder({ textarea, transcriptionService, transcriptReview,
       const data = await transcriptionService.transcribe({ blob, filename, requestId });
       const text = (data.text || "").trim();
       isRecording = false;
-      holdToTalkBtn.innerHTML =
-        '<i class="fa-solid fa-microphone"></i> <span class="hidden sm:inline">点击说话</span>';
+      holdToTalkBtn.innerHTML = '<i class="fa-solid fa-microphone text-sm"></i>';
       holdToTalkBtn.classList.remove("hold-to-talk-active");
       recordingMask.classList.add("hidden");
       recordingMask.classList.remove("flex");
@@ -186,6 +202,11 @@ export function initRecorder({ textarea, transcriptionService, transcriptReview,
   }
 
   function cleanupStream() {
+    if (audioCtx && audioCtx.state !== "closed") {
+      audioCtx.close().catch(() => {});
+      audioCtx = null;
+    }
+    analyser = null;
     if (stream) {
       stream.getTracks().forEach((t) => t.stop());
       stream = null;
@@ -202,5 +223,6 @@ export function initRecorder({ textarea, transcriptionService, transcriptReview,
 
   // --- 事件绑定 ---
   holdToTalkBtn?.addEventListener("click", toggleRecording);
+  confirmRecordBtn?.addEventListener("click", () => stopRecording(false));
   cancelRecordBtn?.addEventListener("click", () => stopRecording(true));
 }

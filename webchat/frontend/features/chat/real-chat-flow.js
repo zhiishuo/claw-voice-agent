@@ -73,7 +73,7 @@ function renderCitationItems(citations = [], msgId) {
 function appendUserMessage(chatContainer, text, audioUrl) {
   const ts = new Date().toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit" });
   const audioHtml = audioUrl
-    ? `<div class="mt-2">
+    ? `<div class="mt-2 flex justify-end">
         <div class="audio-message-btn bg-green-50 border border-green-100 px-3 py-2 rounded-2xl flex items-center gap-3 cursor-pointer hover:bg-green-100 transition-colors shadow-sm w-fit" onclick="window.playTtsAudio(this)">
           <div class="play-icon-container w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white shadow-sm shrink-0 transition-colors">
             <i class="fa-solid fa-play ml-0.5 text-xs"></i>
@@ -87,8 +87,9 @@ function appendUserMessage(chatContainer, text, audioUrl) {
     <div class="flex justify-end message-anim mt-2">
       <div class="flex flex-col max-w-[80%] items-end">
         <div class="bg-[#f4f4f4] text-gray-800 px-5 py-3 rounded-2xl rounded-tr-sm text-[15px] leading-relaxed w-fit">
-          ${escapeHtml(text)}${audioHtml}
+          ${escapeHtml(text)}
         </div>
+        ${audioHtml}
         <div class="text-[10px] text-gray-400 mt-1 mr-1">${ts}</div>
       </div>
     </div>
@@ -431,10 +432,13 @@ function showSuggestions(requestId, suggestions = []) {
 export function createRealChatFlow({ chatContainer, chatService, ttsService, context, isKnowledgeEnabled, onAfterSend, onTrace }) {
   initTtsPlayerGlobals();
 
-  async function sendMessage(text, audioUrl) {
+  async function sendMessage(text, audioUrl, { skipUserBubble = false } = {}) {
     const requestId = makeId("chat");
     // 显示用户消息气泡（含语音播放器）
-    appendUserMessage(chatContainer, text, audioUrl);
+    // skipUserBubble=true 时跳过，由调用方（如 composer）已渲染
+    if (!skipUserBubble) {
+      appendUserMessage(chatContainer, text, audioUrl);
+    }
     appendAssistantShell(chatContainer, requestId);
 
     try {
@@ -442,19 +446,27 @@ export function createRealChatFlow({ chatContainer, chatService, ttsService, con
       updateStep(requestId, 1, "active");
       const wakeDetection = context?.settings?.wakeDetection !== false;
       if (wakeDetection) {
-        const wakePhrase = context?.settings?.wakePhrase || "";
-        if (wakePhrase) {
-          const inputNorm = normalizeWakeText(text);
-          const phraseNorm = normalizeWakeText(wakePhrase);
-          if (!inputNorm.includes(phraseNorm)) {
-            updateStep(requestId, 1, "error");
-            showError(requestId, `请先说唤醒词「${wakePhrase}」再提问`);
-            return;
+        // 如果会话已通过唤醒验证，跳过此步骤
+        if (context?.sessionVerified?.get(context.session)) {
+          updateStep(requestId, 1, "done");
+        } else {
+          // 安全兜底：会话未验证但消息已发出（正常情况下唤醒卡片会阻止）
+          const wakePhrase = context?.settings?.wakePhrase || "";
+          if (wakePhrase) {
+            const inputNorm = normalizeWakeText(text);
+            const phraseNorm = normalizeWakeText(wakePhrase);
+            if (!inputNorm.includes(phraseNorm)) {
+              updateStep(requestId, 1, "error");
+              showError(requestId, `请先完成唤醒词和声纹校验`);
+              return;
+            }
           }
+          await delay(300);
+          updateStep(requestId, 1, "done");
         }
+      } else {
+        updateStep(requestId, 1, "done");
       }
-      await delay(300);
-      updateStep(requestId, 1, "done");
 
       // Step 2: Agent 执行
       updateStep(requestId, 2, "active");

@@ -12,6 +12,9 @@ import os
 import pathlib
 import shutil
 
+# Mock 状态：追踪声纹注册情况
+_speaker_enrolled = {}  # speaker_id -> True
+
 # mock 音频资源目录
 _MOCK_RESOURCE_DIR = pathlib.Path(os.path.dirname(__file__)) / "mock_resource"
 
@@ -26,7 +29,7 @@ def ensure_mock_tts_file(tts_dir):
             shutil.copy2(str(src), str(dst))
 
 
-def handle_mock_post(path, raw=b""):
+def handle_mock_post(path, raw=b"", headers=None):
     """根据请求路径返回 mock 响应。不匹配的路径返回 None，由 server_fast 正常处理。"""
     payload = {}
     if raw:
@@ -37,7 +40,15 @@ def handle_mock_post(path, raw=b""):
 
     handler = _ROUTES.get(path)
     if handler:
-        return handler(payload)
+        return handler(payload, headers=headers)
+    return None
+
+
+def handle_mock_get(path, query_params=None, headers=None):
+    """GET 请求的 mock 响应。不匹配的路径返回 None。"""
+    handler = _GET_ROUTES.get(path)
+    if handler:
+        return handler(query_params or {}, headers=headers)
     return None
 
 
@@ -45,7 +56,7 @@ def handle_mock_post(path, raw=b""):
 # Mock 响应数据
 # ---------------------------------------------------------------------------
 
-def _mock_chat(payload):
+def _mock_chat(payload, headers=None):
     """POST /api/chat — 模拟 LLM 对话回复"""
     session = payload.get("session", "mock-session")
     message = payload.get("message", "")
@@ -120,7 +131,7 @@ def _mock_chat(payload):
     }
 
 
-def _mock_chat_suggestions(payload):
+def _mock_chat_suggestions(payload, headers=None):
     """POST /api/chat/suggestions — 模拟推荐追问"""
     return {
         "ok": True,
@@ -134,7 +145,7 @@ def _mock_chat_suggestions(payload):
     }
 
 
-def _mock_transcribe(payload):
+def _mock_transcribe(payload, headers=None):
     """POST /api/transcribe — 模拟 ASR 转写"""
     # TODO: 可以根据上传文件大小返回不同长度的 mock 文本
     return {
@@ -151,7 +162,7 @@ def _mock_transcribe(payload):
     }
 
 
-def _mock_tts(payload):
+def _mock_tts(payload, headers=None):
     """POST /api/tts — 模拟 TTS 语音合成，返回 mock_resource/mock_tts.mp3"""
     src = _MOCK_RESOURCE_DIR / "mock_tts.mp3"
     audio_bytes = src.stat().st_size if src.exists() else 0
@@ -169,9 +180,12 @@ def _mock_tts(payload):
     }
 
 
-def _mock_wake_check(payload):
-    """POST /api/wake-check — 模拟唤醒词检测"""
-    # TODO: 可以根据 wake_phrase 参数返回不同的匹配结果
+def _mock_wake_check(payload, headers=None):
+    """POST /api/wake-check — 模拟唤醒词检测 + 声纹验证"""
+    h = headers or {}
+    wake_phrase = h.get("X-Wake-Phrase", "") or "你好"
+    speaker_id = h.get("X-Speaker-Id", "owner")
+    speaker_match_mode = h.get("X-Speaker-Match-Mode", "all")
     return {
         "ok": True,
         "matched": True,
@@ -179,20 +193,20 @@ def _mock_wake_check(payload):
         "speaker_matched": True,
         "speaker_score": 0.95,
         "speaker_threshold": 0.31,
-        "speaker_enabled": False,
-        "speaker_id": "mock-user",
-        "speaker_match_mode": "all",
+        "speaker_enabled": True,
+        "speaker_id": speaker_id,
+        "speaker_match_mode": speaker_match_mode,
         "speaker_backend": "mock",
         "speaker_model_id": None,
         "speaker_reason": "mock mode",
         "speaker_error": None,
         "speaker": {},
-        "text": "mock 唤醒词",
+        "text": f"mock {wake_phrase}",
         "meta": {"engine": "mock"},
     }
 
 
-def _mock_knowledge_search(payload):
+def _mock_knowledge_search(payload, headers=None):
     """POST /api/knowledge/search — 模拟知识库检索"""
     query = payload.get("query", "")
     return {
@@ -216,6 +230,66 @@ def _mock_knowledge_search(payload):
     }
 
 
+def _mock_speaker_enroll(payload, headers=None):
+    """POST /api/speaker/enroll — 模拟声纹注册"""
+    h = headers or {}
+    speaker_id = h.get("X-Speaker-Id", "owner")
+    _speaker_enrolled[speaker_id] = True
+    return {
+        "ok": True,
+        "speaker_id": speaker_id,
+        "num_samples": 3,
+        "profile_dir": f"/mock/speakers/{speaker_id}",
+        "message": "speaker enrolled",
+    }
+
+
+def _mock_speaker_verify(payload, headers=None):
+    """POST /api/speaker/verify — 模拟声纹验证"""
+    h = headers or {}
+    speaker_id = h.get("X-Speaker-Id", "owner")
+    enrolled = _speaker_enrolled.get(speaker_id, False)
+    return {
+        "ok": True,
+        "enabled": True,
+        "matched": enrolled,
+        "score": 0.92 if enrolled else None,
+        "threshold": 0.31,
+        "speaker_id": speaker_id,
+        "num_samples": 3 if enrolled else 0,
+        "model_id": "mock-model",
+        "backend": "mock",
+    }
+
+
+# GET 路由表：path -> handler(query_params, headers) -> dict
+_GET_ROUTES = {
+    "/api/speaker/status": lambda params, headers: _mock_speaker_status(params, headers),
+}
+
+
+def _mock_speaker_status(params, headers=None):
+    """GET /api/speaker/status — 模拟声纹状态"""
+    speaker_id = (params.get("speaker_id") or ["owner"])[0]
+    enrolled = _speaker_enrolled.get(speaker_id, False)
+    return {
+        "ok": True,
+        "enabled": True,
+        "speaker_id": speaker_id,
+        "threshold": 0.31,
+        "has_profile": enrolled,
+        "num_samples": 3 if enrolled else 0,
+        "profile_dir": f"/mock/speakers/{speaker_id}",
+        "profiles": [{"speaker_id": speaker_id, "num_samples": 3 if enrolled else 0, "has_profile": enrolled}] if enrolled else [],
+        "sample_strategy": "best",
+        "model_id": "mock-model",
+        "configured_model_id": "mock-model",
+        "backend": "mock",
+        "model_loaded": True,
+        "model_error": None,
+    }
+
+
 # 路由表：path -> handler(payload) -> dict
 _ROUTES = {
     "/api/chat": _mock_chat,
@@ -224,4 +298,6 @@ _ROUTES = {
     "/api/tts": _mock_tts,
     "/api/wake-check": _mock_wake_check,
     "/api/knowledge/search": _mock_knowledge_search,
+    "/api/speaker/enroll": _mock_speaker_enroll,
+    "/api/speaker/verify": _mock_speaker_verify,
 }

@@ -61,8 +61,9 @@ function closeModal(modalEl, contentEl) {
  * @param {object} opts
  * @param {object} opts.context - appContext
  * @param {object} opts.debugService - from services.debug
+ * @param {object} opts.speakerService - from services.speaker
  */
-export function initSettingsModal({ context, debugService } = {}) {
+export function initSettingsModal({ context, debugService, speakerService } = {}) {
   // Settings modal elements
   const settingsBtn = $("open-settings-btn");
   const settingsModal = $("settings-modal");
@@ -105,6 +106,15 @@ export function initSettingsModal({ context, debugService } = {}) {
   const traceClearBtn = $("trace-clear-btn");
   const traceList = $("trace-list");
   const traceSubtitle = $("trace-subtitle");
+
+  // Voiceprint modal elements
+  const openVoiceprintBtn = $("open-voiceprint-btn");
+  const voiceprintModal = $("voiceprint-modal");
+  const voiceprintModalContent = $("voiceprint-modal-content");
+  const voiceprintCloseBtn = $("voiceprint-close-btn");
+  const voiceprintRefreshBtn = $("voiceprint-refresh-btn");
+  const voiceprintList = $("voiceprint-list");
+  const voiceprintSubtitle = $("voiceprint-subtitle");
 
   // --- Settings read/write ---
   function loadSettingsToForm() {
@@ -420,6 +430,74 @@ export function initSettingsModal({ context, debugService } = {}) {
     if (window.confirm("确定清空当前会话的留痕记录吗？")) clearTraces();
   });
   traceModal?.addEventListener("click", (e) => { if (e.target === traceModal) closeModal(traceModal, traceModalContent); });
+
+  // --- Voiceprint list ---
+  async function loadVoiceprintList() {
+    if (!speakerService) {
+      if (voiceprintList) voiceprintList.innerHTML = '<div class="text-gray-400 py-4 text-center">声纹服务不可用</div>';
+      return;
+    }
+    if (voiceprintList) voiceprintList.innerHTML = '<div class="text-gray-400 py-4 text-center">加载中...</div>';
+    try {
+      const data = await speakerService.status();
+      const profiles = Array.isArray(data?.profiles) ? data.profiles : [];
+      const enabled = !!data?.enabled;
+      const threshold = data?.threshold;
+      const backend = data?.backend || "unknown";
+      const modelId = data?.model_id || "";
+
+      if (voiceprintSubtitle) {
+        voiceprintSubtitle.textContent = `后端: ${backend} · 阈值: ${threshold ?? "-"} · ${enabled ? "已启用" : "未启用"}`;
+      }
+
+      if (!profiles.length) {
+        voiceprintList.innerHTML = `
+          <div class="text-center py-6">
+            <div class="text-gray-300 mb-2"><i class="fa-solid fa-user-slash text-3xl"></i></div>
+            <div class="text-gray-400 text-sm">暂无声纹数据</div>
+            <div class="text-gray-300 text-xs mt-1">请通过声纹注册功能录入语音</div>
+          </div>
+        `;
+        return;
+      }
+
+      voiceprintList.innerHTML = profiles.map((p) => {
+        const sid = escapeHtml(p.speaker_id || "");
+        const numSamples = p.num_samples || 0;
+        const hasProfile = !!p.has_profile;
+        const statusColor = hasProfile ? "text-green-600" : "text-gray-400";
+        const statusIcon = hasProfile ? "fa-circle-check" : "fa-circle-xmark";
+        const statusText = hasProfile ? "已注册" : "未注册";
+        return `
+          <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100">
+            <div class="w-9 h-9 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-sm flex-shrink-0">
+              ${sid.charAt(0).toUpperCase()}
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="font-medium text-gray-800 text-sm truncate">${sid}</div>
+              <div class="text-[11px] text-gray-500 mt-0.5">
+                ${numSamples} 段语音样本 · 模型: ${escapeHtml(modelId || "N/A")}
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5 flex-shrink-0">
+              <i class="fa-solid ${statusIcon} text-xs ${statusColor}"></i>
+              <span class="text-xs ${statusColor} font-medium">${statusText}</span>
+            </div>
+          </div>
+        `;
+      }).join("");
+    } catch (err) {
+      if (voiceprintList) voiceprintList.innerHTML = `<div class="text-red-500 py-4 text-center">加载失败：${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  openVoiceprintBtn?.addEventListener("click", () => {
+    openModal(voiceprintModal, voiceprintModalContent);
+    loadVoiceprintList();
+  });
+  voiceprintCloseBtn?.addEventListener("click", () => closeModal(voiceprintModal, voiceprintModalContent));
+  voiceprintRefreshBtn?.addEventListener("click", loadVoiceprintList);
+  voiceprintModal?.addEventListener("click", (e) => { if (e.target === voiceprintModal) closeModal(voiceprintModal, voiceprintModalContent); });
 
   return {
     addTrace: (record) => addTrace(context?.session || "", record),

@@ -85,7 +85,7 @@ function renderMessages(chatContainer, messages = []) {
   chatContainer.scrollTo({ top: chatContainer.scrollHeight, behavior: "smooth" });
 }
 
-export function initSessionList({ context, sessionService, chatContainer, enabled = true } = {}) {
+export function initSessionList({ context, sessionService, chatContainer, enabled = true, onSessionChange } = {}) {
   const historyList = $("history-list");
   const newSessionBtn = $("new-session-btn");
   const clearSessionsBtn = $("clear-sessions-btn");
@@ -138,6 +138,7 @@ export function initSessionList({ context, sessionService, chatContainer, enable
     if (!next || next === context.session) return;
     setAppSession(context, next);
     render(sessions);
+    onSessionChange?.(next);
     if (!isEnabled || !sessionService) {
       renderWelcome(chatContainer);
       return;
@@ -154,6 +155,7 @@ export function initSessionList({ context, sessionService, chatContainer, enable
     setAppSession(context, makeSessionId());
     renderWelcome(chatContainer);
     render(sessions);
+    onSessionChange?.(context.session);
   }
 
   async function deleteSession(session) {
