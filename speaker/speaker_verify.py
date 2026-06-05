@@ -190,13 +190,18 @@ class SpeakerVerifier:
         selected_samples = self._selected_samples(samples)
         best_score = None
         best_sample = None
+        errors = []
         for sample in selected_samples:
-            result = verifier([str(src), str(sample)], thr=self.threshold)
-            score = _extract_score(result)
+            try:
+                result = verifier([str(src), str(sample)], thr=self.threshold)
+                score = _extract_score(result)
+            except Exception as exc:
+                errors.append({"sample": str(sample), "error": str(exc)})
+                continue
             if score is not None and (best_score is None or score > best_score):
                 best_score = score
                 best_sample = sample
-        return best_score, best_sample, len(selected_samples)
+        return best_score, best_sample, len(selected_samples), errors
 
     def verify(self, audio_path, speaker_id="owner"):
         sid = self._speaker_id(speaker_id)
@@ -239,7 +244,7 @@ class SpeakerVerifier:
         }
 
         try:
-            best_score, best_sample, compared_samples = self._verify_samples(str(src), sid, samples)
+            best_score, best_sample, compared_samples, sample_errors = self._verify_samples(str(src), sid, samples)
             matched = bool(best_score is not None and best_score >= self.threshold)
             return {
                 "ok": True,
@@ -254,6 +259,8 @@ class SpeakerVerifier:
                 "model_id": self._loaded_model_id or self.model_id,
                 "backend": BACKEND,
                 "best_sample": str(best_sample) if best_sample else None,
+                "sample_errors": sample_errors,
+                "reason": "speaker matched" if matched else "speaker not matched",
             }
         except Exception as exc:
             return {
@@ -319,12 +326,13 @@ class SpeakerVerifier:
             for profile in profiles:
                 sid = profile["speaker_id"]
                 samples = self._samples(sid)
-                score, sample, compared_samples = self._verify_samples(str(src), sid, samples)
+                score, sample, compared_samples, sample_errors = self._verify_samples(str(src), sid, samples)
                 checked.append({
                     "speaker_id": sid,
                     "score": score,
                     "num_samples": len(samples),
                     "compared_samples": compared_samples,
+                    "sample_errors": sample_errors,
                 })
                 if score is not None and (best_score is None or score > best_score):
                     best_score = score

@@ -12,7 +12,7 @@ export function createSpeakerService(http, { getClientId } = {}) {
       return http.request(`/api/speaker/status?speaker_id=${encodeURIComponent(speakerId)}`);
     },
 
-    enroll({ blob, filename = "speaker.webm", speakerId = "owner", requestId }) {
+    enroll({ blob, filename = "speaker.webm", speakerId = "owner", requestId, signal }) {
       return http.request("/api/speaker/enroll", {
         method: "POST",
         headers: {
@@ -21,10 +21,11 @@ export function createSpeakerService(http, { getClientId } = {}) {
           ...commonHeaders(requestId, speakerId),
         },
         body: blob,
+        signal,
       });
     },
 
-    verify({ blob, filename = "speaker.webm", speakerId = "owner", requestId }) {
+    verify({ blob, filename = "speaker.webm", speakerId = "owner", requestId, signal }) {
       return http.request("/api/speaker/verify", {
         method: "POST",
         headers: {
@@ -33,6 +34,7 @@ export function createSpeakerService(http, { getClientId } = {}) {
           ...commonHeaders(requestId, speakerId),
         },
         body: blob,
+        signal,
       });
     },
   };
