@@ -4,7 +4,7 @@ export function createWakeService(http, { getClientId, getSession } = {}) {
       return http.request("/api/wake-check", {
         method: "POST",
         headers: {
-          "Content-Type": blob?.type || "audio/wav",
+          "Content-Type": blob?.type || "audio/pcm-f32",
           "X-Filename": filename,
           "X-Wake-Language": language,
           "X-Wake-Phrase-B64": btoa(unescape(encodeURIComponent(wakePhrase))),

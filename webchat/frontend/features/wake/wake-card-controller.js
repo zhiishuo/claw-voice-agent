@@ -317,10 +317,11 @@ export function initWakeCard({ wakeService, context, getDeviceId, onWakeSuccess 
       chunkSamples = Math.max(0, chunkSamples - targetSamples);
 
       const resampled = await resampleTo16k(chunkSampleRate, samples);
-      const wavBlob = encodeWavBlobFromFloat32(resampled, 16000);
-      console.log("[wake-card] WAV blob size:", wavBlob.size, "bytes, samples:", resampled.length, "chunkSampleRate:", chunkSampleRate);
-      lastChunkBlob = wavBlob;
-      checkWake(wavBlob);
+      // 发送原始 Float32 PCM，后端用 wave 模块编码 WAV
+      const pcmBlob = new Blob([resampled.buffer], { type: "audio/pcm-f32" });
+      console.log("[wake-card] PCM blob size:", pcmBlob.size, "bytes, samples:", resampled.length, "chunkSampleRate:", chunkSampleRate);
+      lastChunkBlob = pcmBlob;
+      checkWake(pcmBlob);
     } catch (err) {
       console.error("唤醒chunk处理失败:", err);
       pendingCheck = false;

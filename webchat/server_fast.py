@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import array
 import base64
 import json
 import os
@@ -1971,18 +1972,39 @@ def run_chat_backend(session, message, knowledge_enabled=True):
     return run_openclaw(session, message, knowledge_enabled=knowledge_enabled)
 
 
-def rewrite_wav(src_path):
-    """用 Python wave 模块重写 WAV 文件，确保 modelscope 兼容。非 WAV 则原样返回。"""
+def rewrite_wav(src_path, content_type=None):
+    """将音频文件转为标准 WAV（16kHz/16bit/mono），确保 modelscope 兼容。返回转换后的文件路径。"""
+    src = str(src_path)
+    # 前端发来的原始 Float32 PCM（16kHz），用 wave 模块从零编码 WAV
+    if content_type and "pcm-f32" in content_type:
+        try:
+            raw_bytes = pathlib.Path(src).read_bytes()
+            samples = array.array("f", raw_bytes)  # float32 LE
+            wav_path = src.rsplit(".", 1)[0] + ".wav"
+            with wave.open(wav_path, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)  # 16-bit
+                wf.setframerate(16000)
+                # float32 → int16
+                int16_data = b""
+                for s in samples:
+                    s = max(-1.0, min(1.0, s))
+                    int16_data += struct.pack("<h", int(s * 0x7fff) if s >= 0 else int(s * 0x8000))
+                wf.writeframes(int16_data)
+            return wav_path
+        except Exception:
+            pass
+    # 已有 WAV：用 wave 模块重写确保格式标准
     try:
-        with wave.open(str(src_path), "rb") as wf:
+        with wave.open(src, "rb") as wf:
             params = wf.getparams()
             frames = wf.readframes(params.nframes)
-        with wave.open(str(src_path), "wb") as wf:
+        with wave.open(src, "wb") as wf:
             wf.setparams(params)
             wf.writeframes(frames)
     except Exception:
         pass
-    return str(src_path)
+    return src
 
 
 def ext_for_content_type(content_type, filename):
@@ -2000,6 +2022,7 @@ def ext_for_content_type(content_type, filename):
         "audio/flac": ".flac",
         "audio/x-flac": ".flac",
         "audio/ogg": ".ogg",
+        "audio/pcm-f32": ".pcm",
     }
     return mapping.get(content_type, ".bin")
 
@@ -2487,7 +2510,7 @@ class Handler(BaseHTTPRequestHandler):
                 with tempfile.TemporaryDirectory(prefix="openclaw-speaker-") as tmp:
                     path = pathlib.Path(tmp) / f"speaker{ext_for_content_type(content_type, filename)}"
                     path.write_bytes(raw)
-                    rewrite_wav(path)
+                    path = pathlib.Path(rewrite_wav(path, content_type))
                     if parsed.path == "/api/speaker/enroll":
                         result = SPEAKER_VERIFIER.enroll(str(path), speaker_id=speaker_id)
                         log_event("speaker_enroll", ok=result.get("ok"), speakerId=result.get("speaker_id"), numSamples=result.get("num_samples"), clientId=client_id, requestId=request_id)
@@ -2605,7 +2628,7 @@ class Handler(BaseHTTPRequestHandler):
                 with tempfile.TemporaryDirectory(prefix="openclaw-wake-speaker-") as tmp:
                     speaker_audio = pathlib.Path(tmp) / f"wake{ext_for_content_type(content_type, filename)}"
                     speaker_audio.write_bytes(raw)
-                    rewrite_wav(speaker_audio)
+                    speaker_audio = pathlib.Path(rewrite_wav(speaker_audio, content_type))
                     with ThreadPoolExecutor(max_workers=2) as executor:
                         wake_future = executor.submit(run_wake_task)
                         if speaker_match_mode == "current":
