@@ -103,6 +103,7 @@ export function initWakeCard({ wakeService, context, getDeviceId, onWakeSuccess 
   let mediaRecorder = null;
   let recordedChunks = [];
   let lastChunkBlob = null;
+  let lastPreviewBlob = null;
   let pendingText = "";
   let pendingAudioBlob = null;
 
@@ -295,6 +296,7 @@ export function initWakeCard({ wakeService, context, getDeviceId, onWakeSuccess 
     chunkSamples = 0;
     pendingCheck = false;
     lastChunkBlob = null;
+    lastPreviewBlob = null;
   }
 
   async function flushChunkIfReady() {
@@ -319,8 +321,10 @@ export function initWakeCard({ wakeService, context, getDeviceId, onWakeSuccess 
       const resampled = await resampleTo16k(chunkSampleRate, samples);
       // 发送原始 Float32 PCM，后端用 wave 模块编码 WAV
       const pcmBlob = new Blob([resampled.buffer], { type: "audio/pcm-f32" });
+      const previewBlob = encodeWavBlobFromFloat32(resampled, 16000);
       console.log("[wake-card] PCM blob size:", pcmBlob.size, "bytes, samples:", resampled.length, "chunkSampleRate:", chunkSampleRate);
       lastChunkBlob = pcmBlob;
+      lastPreviewBlob = previewBlob;
       checkWake(pcmBlob);
     } catch (err) {
       console.error("唤醒chunk处理失败:", err);
@@ -373,7 +377,7 @@ export function initWakeCard({ wakeService, context, getDeviceId, onWakeSuccess 
       if (matched) {
         updateStatus("✅ 唤醒词 + 声纹验证通过", "success");
         showSpeakerInfo(data?.speaker_id, data?.speaker_score, true);
-        showConfirm(text, lastChunkBlob);
+        showConfirm(text, lastPreviewBlob);
       } else if (wakeMatched && !speakerMatched) {
         updateStatus("唤醒词已识别，声纹不匹配", "warn");
       } else if (!wakeMatched && speakerMatched) {
@@ -393,7 +397,7 @@ export function initWakeCard({ wakeService, context, getDeviceId, onWakeSuccess 
     if (transcriptEl) transcriptEl.textContent = wakePhrase;
     updateStatus("✅ 模拟唤醒成功", "success");
     showSpeakerInfo("mock-owner", 0.95, true);
-    showConfirm(wakePhrase, lastChunkBlob);
+    showConfirm(wakePhrase, lastPreviewBlob);
   }
 
   function updateStatus(text, type = "") {

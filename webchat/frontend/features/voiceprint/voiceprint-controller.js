@@ -12,7 +12,7 @@ const MODAL_HTML = `
     <div class="p-5 space-y-4">
       <div id="vp-phrase-section" class="text-center">
         <div class="text-xs text-gray-400 mb-1">请说出以下内容</div>
-        <div class="text-base font-medium text-gray-800">"你好，我是管理员"</div>
+        <div class="text-base font-medium text-gray-800">"你好"</div>
       </div>
 
       <div id="vp-record-section" class="text-center">
