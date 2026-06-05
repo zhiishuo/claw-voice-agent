@@ -318,6 +318,7 @@ export function initWakeCard({ wakeService, context, getDeviceId, onWakeSuccess 
 
       const resampled = await resampleTo16k(chunkSampleRate, samples);
       const wavBlob = encodeWavBlobFromFloat32(resampled, 16000);
+      console.log("[wake-card] WAV blob size:", wavBlob.size, "bytes, samples:", resampled.length, "chunkSampleRate:", chunkSampleRate);
       lastChunkBlob = wavBlob;
       checkWake(wavBlob);
     } catch (err) {

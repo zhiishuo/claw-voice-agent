@@ -6,8 +6,10 @@ import pathlib
 import re
 import hashlib
 import ssl
+import struct
 import subprocess
 import sys
+import wave
 import tempfile
 import threading
 import time
@@ -1969,6 +1971,20 @@ def run_chat_backend(session, message, knowledge_enabled=True):
     return run_openclaw(session, message, knowledge_enabled=knowledge_enabled)
 
 
+def rewrite_wav(src_path):
+    """用 Python wave 模块重写 WAV 文件，确保 modelscope 兼容。非 WAV 则原样返回。"""
+    try:
+        with wave.open(str(src_path), "rb") as wf:
+            params = wf.getparams()
+            frames = wf.readframes(params.nframes)
+        with wave.open(str(src_path), "wb") as wf:
+            wf.setparams(params)
+            wf.writeframes(frames)
+    except Exception:
+        pass
+    return str(src_path)
+
+
 def ext_for_content_type(content_type, filename):
     if filename and "." in filename:
         return pathlib.Path(filename).suffix[:10]
@@ -2471,6 +2487,7 @@ class Handler(BaseHTTPRequestHandler):
                 with tempfile.TemporaryDirectory(prefix="openclaw-speaker-") as tmp:
                     path = pathlib.Path(tmp) / f"speaker{ext_for_content_type(content_type, filename)}"
                     path.write_bytes(raw)
+                    rewrite_wav(path)
                     if parsed.path == "/api/speaker/enroll":
                         result = SPEAKER_VERIFIER.enroll(str(path), speaker_id=speaker_id)
                         log_event("speaker_enroll", ok=result.get("ok"), speakerId=result.get("speaker_id"), numSamples=result.get("num_samples"), clientId=client_id, requestId=request_id)
@@ -2588,6 +2605,7 @@ class Handler(BaseHTTPRequestHandler):
                 with tempfile.TemporaryDirectory(prefix="openclaw-wake-speaker-") as tmp:
                     speaker_audio = pathlib.Path(tmp) / f"wake{ext_for_content_type(content_type, filename)}"
                     speaker_audio.write_bytes(raw)
+                    rewrite_wav(speaker_audio)
                     with ThreadPoolExecutor(max_workers=2) as executor:
                         wake_future = executor.submit(run_wake_task)
                         if speaker_match_mode == "current":
