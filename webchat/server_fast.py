@@ -1977,23 +1977,25 @@ def rewrite_wav(src_path, content_type=None):
     src = str(src_path)
     # 前端发来的原始 Float32 PCM（16kHz），用 wave 模块从零编码 WAV
     if content_type and "pcm-f32" in content_type:
-        try:
-            raw_bytes = pathlib.Path(src).read_bytes()
-            samples = array.array("f", raw_bytes)  # float32 LE
-            wav_path = src.rsplit(".", 1)[0] + ".wav"
-            with wave.open(wav_path, "wb") as wf:
-                wf.setnchannels(1)
-                wf.setsampwidth(2)  # 16-bit
-                wf.setframerate(16000)
-                # float32 → int16
-                int16_data = b""
-                for s in samples:
-                    s = max(-1.0, min(1.0, s))
-                    int16_data += struct.pack("<h", int(s * 0x7fff) if s >= 0 else int(s * 0x8000))
-                wf.writeframes(int16_data)
-            return wav_path
-        except Exception:
-            pass
+        raw_bytes = pathlib.Path(src).read_bytes()
+        if len(raw_bytes) % 4:
+            raise RuntimeError(f"invalid pcm-f32 payload: {len(raw_bytes)} bytes")
+        samples = array.array("f")
+        samples.frombytes(raw_bytes)
+        if sys.byteorder != "little":
+            samples.byteswap()
+        wav_path = src.rsplit(".", 1)[0] + ".wav"
+        frames = bytearray(len(samples) * 2)
+        for idx, sample in enumerate(samples):
+            sample = max(-1.0, min(1.0, float(sample)))
+            value = int(sample * 0x7fff) if sample >= 0 else int(sample * 0x8000)
+            struct.pack_into("<h", frames, idx * 2, value)
+        with wave.open(wav_path, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(TARGET_SAMPLE_RATE)
+            wf.writeframes(frames)
+        return wav_path
     # 已有 WAV：用 wave 模块重写确保格式标准
     try:
         with wave.open(src, "rb") as wf:
@@ -2008,9 +2010,11 @@ def rewrite_wav(src_path, content_type=None):
 
 
 def ext_for_content_type(content_type, filename):
+    normalized_type = (content_type or "").split(";")[0].strip().lower()
+    if normalized_type == "audio/pcm-f32":
+        return ".pcm"
     if filename and "." in filename:
         return pathlib.Path(filename).suffix[:10]
-    content_type = (content_type or "").split(";")[0].strip().lower()
     mapping = {
         "audio/webm": ".webm",
         "audio/wav": ".wav",
@@ -2024,7 +2028,7 @@ def ext_for_content_type(content_type, filename):
         "audio/ogg": ".ogg",
         "audio/pcm-f32": ".pcm",
     }
-    return mapping.get(content_type, ".bin")
+    return mapping.get(normalized_type, ".bin")
 
 
 def transcribe_via_asr_service(path, *, vad_filter=False, language=None):
@@ -2051,6 +2055,7 @@ def transcribe_audio(raw_bytes, content_type, filename, requested_language=None)
     with tempfile.TemporaryDirectory(prefix="openclaw-webchat-") as tmp:
         path = pathlib.Path(tmp) / f"audio{ext_for_content_type(content_type, filename)}"
         path.write_bytes(raw_bytes)
+        path = pathlib.Path(rewrite_wav(path, content_type))
         requested = None if requested_language in (None, "", "auto") else requested_language
         transcript, meta = transcribe_via_asr_service(path, vad_filter=False, language=requested)
         if not transcript and requested is not None:
@@ -2122,10 +2127,16 @@ def try_transcribe_audio(raw_bytes, content_type, filename, requested_language=N
         raise
 
 
-def check_wake_with_sherpa(raw_bytes, wake_phrase):
+def check_wake_with_sherpa(raw_bytes, wake_phrase, content_type=None, filename=None):
+    payload = raw_bytes
+    if content_type and "pcm-f32" in content_type:
+        with tempfile.TemporaryDirectory(prefix="openclaw-wake-sherpa-") as tmp:
+            path = pathlib.Path(tmp) / f"wake{ext_for_content_type(content_type, filename)}"
+            path.write_bytes(raw_bytes)
+            payload = pathlib.Path(rewrite_wav(path, content_type)).read_bytes()
     req = urllib.request.Request(
         SHERPA_WAKE_URL,
-        data=raw_bytes,
+        data=payload,
         headers={
             "Content-Type": "audio/wav",
             "X-Wake-Phrase": wake_phrase,
@@ -2607,7 +2618,7 @@ class Handler(BaseHTTPRequestHandler):
                     prefer_sherpa = requested_language == "en"
                     try:
                         if prefer_sherpa:
-                            sherpa = check_wake_with_sherpa(raw, wake_phrase)
+                            sherpa = check_wake_with_sherpa(raw, wake_phrase, content_type, filename)
                             matched = bool(sherpa.get("matched"))
                             transcript = str(sherpa.get("text") or "")
                             meta = {"engine": "sherpa-kws", **sherpa}
