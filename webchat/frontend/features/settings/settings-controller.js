@@ -109,8 +109,8 @@ export function initSettingsModal({ context, debugService, speakerService } = {}
 
   // Voiceprint modal elements
   const openVoiceprintBtn = $("open-voiceprint-btn");
-  const voiceprintModal = $("voiceprint-modal");
-  const voiceprintModalContent = $("voiceprint-modal-content");
+  const voiceprintModal = $("voiceprint-list-modal");
+  const voiceprintModalContent = $("voiceprint-list-modal-content");
   const voiceprintCloseBtn = $("voiceprint-close-btn");
   const voiceprintRefreshBtn = $("voiceprint-refresh-btn");
   const voiceprintList = $("voiceprint-list");
