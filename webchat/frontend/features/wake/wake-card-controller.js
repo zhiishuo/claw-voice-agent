@@ -3,6 +3,20 @@ import { makeId } from "../../core/ids.js";
 import { encodeWavBlobFromFloat32 } from "./audio-codec.js";
 import { wakeLanguageCode, wakeChunkMs } from "./wake-utils.js";
 
+// 重采样到 16kHz（modelscope CAM++ 要求）
+async function resampleTo16k(sourceSampleRate, samples) {
+  if (sourceSampleRate === 16000) return samples;
+  const offlineCtx = new OfflineAudioContext(1, Math.round(samples.length * 16000 / sourceSampleRate), 16000);
+  const buffer = offlineCtx.createBuffer(1, samples.length, sourceSampleRate);
+  buffer.getChannelData(0).set(samples);
+  const source = offlineCtx.createBufferSource();
+  source.buffer = buffer;
+  source.connect(offlineCtx.destination);
+  source.start();
+  const rendered = await offlineCtx.startRendering();
+  return rendered.getChannelData(0);
+}
+
 const CARD_HTML = (wakePhrase) => `
 <div id="wake-card" class="flex-1 flex flex-col items-center justify-center min-h-[60vh] px-4 message-anim">
   <div class="w-full max-w-lg bg-gradient-to-b from-blue-50/80 to-white border border-blue-100/60 rounded-2xl shadow-sm p-8 sm:p-10 flex flex-col items-center gap-5">
@@ -283,7 +297,7 @@ export function initWakeCard({ wakeService, context, getDeviceId, onWakeSuccess 
     lastChunkBlob = null;
   }
 
-  function flushChunkIfReady() {
+  async function flushChunkIfReady() {
     if (pendingCheck || !isActive) return;
     const targetSamples = Math.floor(chunkSampleRate * (wakeChunkMs(context?.settings?.wakePhrase) / 1000));
     if (chunkSamples < targetSamples) return;
@@ -302,7 +316,8 @@ export function initWakeCard({ wakeService, context, getDeviceId, onWakeSuccess 
       }
       chunkSamples = Math.max(0, chunkSamples - targetSamples);
 
-      const wavBlob = encodeWavBlobFromFloat32(samples, chunkSampleRate);
+      const resampled = await resampleTo16k(chunkSampleRate, samples);
+      const wavBlob = encodeWavBlobFromFloat32(resampled, 16000);
       lastChunkBlob = wavBlob;
       checkWake(wavBlob);
     } catch (err) {
