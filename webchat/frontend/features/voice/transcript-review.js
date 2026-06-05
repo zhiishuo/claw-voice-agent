@@ -16,21 +16,41 @@ export function createTranscriptReview({ textarea, onConfirm } = {}) {
   const transcriptCancelBtn = $("transcript-cancel-btn");
 
   let visible = false;
+  let currentAudioUrl = "";
 
-  function show(text) {
+  const audioContainer = $("transcript-audio-container");
+
+  function show(text, audioUrl) {
     if (!transcriptReview) return;
     visible = true;
+    currentAudioUrl = audioUrl || "";
     textarea?.classList.add("opacity-0");
     transcriptEditor.value = text || "";
+    // 插入音频播放器
+    if (audioContainer) {
+      if (audioUrl) {
+        audioContainer.innerHTML = `
+          <audio id="transcript-audio" controls class="w-full h-9 rounded-lg" src="${audioUrl}"></audio>
+        `;
+        audioContainer.classList.remove("hidden");
+      } else {
+        audioContainer.innerHTML = "";
+        audioContainer.classList.add("hidden");
+      }
+    }
     transcriptReview.classList.remove("hidden");
     transcriptReview.classList.add("flex");
     transcriptEditor.focus();
-    transcriptEditor.select();
   }
 
   function hide() {
     if (!transcriptReview) return;
     visible = false;
+    currentAudioUrl = "";
+    // 停止并清理音频
+    const audio = transcriptReview.querySelector("audio");
+    if (audio) { audio.pause(); audio.src = ""; }
+    if (audioContainer) { audioContainer.innerHTML = ""; audioContainer.classList.add("hidden"); }
     transcriptReview.classList.add("hidden");
     transcriptReview.classList.remove("flex");
     textarea?.classList.remove("opacity-0");
@@ -43,8 +63,9 @@ export function createTranscriptReview({ textarea, onConfirm } = {}) {
   function handleConfirm() {
     if (!visible) return;
     const text = transcriptEditor.value.trim();
+    const url = currentAudioUrl;
     hide();
-    if (text) onConfirm?.(text);
+    if (text) onConfirm?.(text, url);
   }
 
   function handleCancel() {

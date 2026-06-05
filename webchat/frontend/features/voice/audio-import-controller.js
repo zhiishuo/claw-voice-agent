@@ -24,7 +24,8 @@ export function initAudioImport({ textarea, transcriptionService, transcriptRevi
     try {
       const data = await transcriptionService.transcribe({ blob: file, filename, requestId });
       const text = (data.text || "").trim();
-      transcriptReview.show(text);
+      const audioUrl = URL.createObjectURL(file);
+      transcriptReview.show(text, audioUrl);
     } catch (err) {
       console.error("音频转写失败:", err);
       alert(`音频识别失败: ${err.message || err}`);

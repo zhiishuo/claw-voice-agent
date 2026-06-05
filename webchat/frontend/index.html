@@ -132,16 +132,6 @@
                                 </div>
                                 <button id="cancel-record-btn" class="text-[11px] font-medium text-gray-500 hover:text-red-500 px-3 py-1.5 bg-white border border-gray-200 shadow-sm rounded-full transition-colors flex-shrink-0 w-[52px]">取消</button>
                             </div>
-
-                            <!-- 转写结果确认遮罩 (初始隐藏) -->
-                            <div id="transcript-review" class="hidden absolute inset-0 bg-[#f4f4f4] z-10 flex flex-col p-2.5 rounded-3xl">
-                                <div class="text-[11px] font-medium text-gray-500 mb-1 px-1">语音识别结果</div>
-                                <textarea id="transcript-editor" rows="2" class="flex-1 bg-white border border-gray-200 rounded-xl p-2 text-sm resize-none focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100 no-scrollbar" placeholder="识别结果..."></textarea>
-                                <div class="flex items-center justify-end gap-2 mt-1.5">
-                                    <button id="transcript-cancel-btn" class="text-[11px] font-medium text-gray-500 hover:text-red-500 px-3 py-1.5 bg-white border border-gray-200 rounded-full transition-colors">取消</button>
-                                    <button id="transcript-confirm-btn" class="text-[11px] font-medium text-white px-4 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-full transition-colors">确认发送</button>
-                                </div>
-                            </div>
                         </div>
                         
                         <!-- 发送按钮组 -->
@@ -560,6 +550,21 @@
             </div>
         </div>
     </div>
+
+    <!-- 转写结果确认浮窗 (初始隐藏) -->
+    <div id="transcript-review" class="hidden fixed inset-0 z-[130] bg-gray-900/40 backdrop-blur-sm flex items-center justify-center">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            <div class="px-5 py-4 border-b border-gray-100 flex items-center gap-2 bg-gray-50/80">
+                <i class="fa-solid fa-microphone text-blue-500 text-sm"></i>
+                <span class="text-sm font-bold text-gray-800">语音识别结果</span>
+            </div>
+            <div class="p-4 space-y-3">
+                <div id="transcript-audio-container" class="hidden"></div>
+                <textarea id="transcript-editor" rows="3" class="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-800 resize-none focus:outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 no-scrollbar leading-relaxed" placeholder="识别结果..."></textarea>
+            </div>
+            <div class="px-5 py-3 border-t border-gray-100 flex items-center justify-end gap-2 bg-gray-50/50">
+                <button id="transcript-cancel-btn" class="text-xs font-medium text-gray-500 hover:text-red-500 hover:bg-red-50 px-4 py-2 rounded-lg transition-colors">取消</button>
+                <button id="transcript-confirm-btn" class="text-xs font-medium text-white px-5 py-2 bg-blue-500 hover:bg-blue-600 rounded-lg shadow-sm transition-colors"><i class="fa-solid fa-paper-plane mr-1.5 text-[10px]"></i>确认发送</button>
             </div>
         </div>
     </div>

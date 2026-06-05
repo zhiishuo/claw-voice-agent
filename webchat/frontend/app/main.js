@@ -111,11 +111,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // Shared transcript review for recorder and audio import
   const transcriptReview = createTranscriptReview({
     textarea,
-    onConfirm: (text) => {
-      textarea.value = text;
-      textarea.style.height = "auto";
-      textarea.style.height = `${textarea.scrollHeight}px`;
-      composer.refreshSendState();
+    onConfirm: (text, audioUrl) => {
+      // 直接发送，不再填入输入框
+      chatFlow.sendMessage(text, audioUrl);
     },
   });
 

@@ -70,6 +70,33 @@ function renderCitationItems(citations = [], msgId) {
   `;
 }
 
+function appendUserMessage(chatContainer, text, audioUrl) {
+  const ts = new Date().toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit" });
+  const audioHtml = audioUrl
+    ? `<div class="mt-2">
+        <div class="audio-message-btn bg-green-50 border border-green-100 px-3 py-2 rounded-2xl flex items-center gap-3 cursor-pointer hover:bg-green-100 transition-colors shadow-sm w-fit" onclick="window.playTtsAudio(this)">
+          <div class="play-icon-container w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white shadow-sm shrink-0 transition-colors">
+            <i class="fa-solid fa-play ml-0.5 text-xs"></i>
+          </div>
+          <span class="text-xs font-medium text-green-600">语音消息</span>
+        </div>
+        <audio class="hidden" preload="auto" src="${escapeHtml(audioUrl)}"></audio>
+      </div>`
+    : "";
+  const html = `
+    <div class="flex justify-end message-anim mt-2">
+      <div class="flex flex-col max-w-[80%] items-end">
+        <div class="bg-[#f4f4f4] text-gray-800 px-5 py-3 rounded-2xl rounded-tr-sm text-[15px] leading-relaxed w-fit">
+          ${escapeHtml(text)}${audioHtml}
+        </div>
+        <div class="text-[10px] text-gray-400 mt-1 mr-1">${ts}</div>
+      </div>
+    </div>
+  `;
+  chatContainer.insertAdjacentHTML("beforeend", html);
+  chatContainer.scrollTo({ top: chatContainer.scrollHeight, behavior: "smooth" });
+}
+
 function appendAssistantShell(chatContainer, requestId) {
   const html = `
     <div class="flex items-start gap-4 message-anim mt-2" id="ai-msg-${requestId}">
@@ -404,8 +431,10 @@ function showSuggestions(requestId, suggestions = []) {
 export function createRealChatFlow({ chatContainer, chatService, ttsService, context, isKnowledgeEnabled, onAfterSend, onTrace }) {
   initTtsPlayerGlobals();
 
-  async function sendMessage(text) {
+  async function sendMessage(text, audioUrl) {
     const requestId = makeId("chat");
+    // 显示用户消息气泡（含语音播放器）
+    appendUserMessage(chatContainer, text, audioUrl);
     appendAssistantShell(chatContainer, requestId);
 
     try {

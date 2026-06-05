@@ -170,9 +170,13 @@ export function initRecorder({ textarea, transcriptionService, transcriptReview,
       const data = await transcriptionService.transcribe({ blob, filename, requestId });
       const text = (data.text || "").trim();
       isRecording = false;
+      holdToTalkBtn.innerHTML =
+        '<i class="fa-solid fa-microphone"></i> <span class="hidden sm:inline">点击说话</span>';
+      holdToTalkBtn.classList.remove("hold-to-talk-active");
       recordingMask.classList.add("hidden");
       recordingMask.classList.remove("flex");
-      transcriptReview.show(text);
+      const audioUrl = URL.createObjectURL(blob);
+      transcriptReview.show(text, audioUrl);
     } catch (err) {
       console.error("转写失败:", err);
       isRecording = false;
