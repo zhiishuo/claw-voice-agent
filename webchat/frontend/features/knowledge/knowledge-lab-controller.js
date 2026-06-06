@@ -33,6 +33,7 @@ export function initKnowledgeLab({ knowledgeService, onSwitchTo } = {}) {
   let currentTab = "results";
   let lastResults = [];
   let lastQuery = "";
+  let lastQueryPoint = null;
 
   async function loadStatus() {
     if (!knowledgeService) return null;
@@ -84,6 +85,7 @@ export function initKnowledgeLab({ knowledgeService, onSwitchTo } = {}) {
       renderStatus(kb, elements);
       lastResults = results;
       lastQuery = query;
+      lastQueryPoint = data?.query_point || null;
       renderResults(results, { query, topK, mode: mode || kb.mode }, elements);
       elements.kbResultsArea?.classList.remove("hidden");
       elements.kbResultsArea?.classList.add("flex");
@@ -115,7 +117,7 @@ export function initKnowledgeLab({ knowledgeService, onSwitchTo } = {}) {
     elements.kbTabResults?.classList.remove("active");
     elements.kbResultsList?.classList.add("hidden");
     elements.kbVizArea?.classList.remove("hidden");
-    vizRenderer.render(lastResults, lastQuery);
+    vizRenderer.render(lastResults, lastQuery, lastQueryPoint);
   }
 
   elements.doSearchBtn?.addEventListener("click", doSearch);
@@ -129,7 +131,7 @@ export function initKnowledgeLab({ knowledgeService, onSwitchTo } = {}) {
   elements.kbRefreshBtn?.addEventListener("click", async () => {
     await loadStatus();
     await loadVisualization();
-    if (currentTab === "viz") vizRenderer.render(lastResults, lastQuery);
+    if (currentTab === "viz") vizRenderer.render(lastResults, lastQuery, lastQueryPoint);
   });
   elements.kbTabResults?.addEventListener("click", () => showTab("results"));
   elements.kbTabViz?.addEventListener("click", () => showTab("viz"));

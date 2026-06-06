@@ -15,6 +15,7 @@ class KnowledgeBaseConfig:
     metadata_path: Path
     keyword_index_path: Path
     visualization_path: Path
+    visualization_model_path: Path
     manifest_path: Path
     originals_dir: Path
     embedding_model: str
@@ -56,6 +57,7 @@ def get_config(
         metadata_path=base_output / "metadata.jsonl",
         keyword_index_path=base_output / "keyword_index.json",
         visualization_path=base_output / "visualization.json",
+        visualization_model_path=base_output / "visualization_model.pkl",
         manifest_path=base_output / "manifest.jsonl",
         originals_dir=base_output / "originals",
         embedding_model=model_name,

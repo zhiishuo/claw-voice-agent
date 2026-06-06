@@ -251,12 +251,12 @@ export function createKnowledgeVisualizationRenderer(kbVizContent) {
     ctx.globalAlpha = 1;
   }
 
-  function render(results, query) {
+  function render(results, query, queryPointFromBackend = null) {
     if (!kbVizContent) return;
     vectorMapRenderer?.dispose?.();
     vectorMapRenderer = null;
     if (kbVisualization?.points?.length) {
-      renderWholeKbViz(kbVisualization, results, query);
+      renderWholeKbViz(kbVisualization, results, query, queryPointFromBackend);
     } else if (results?.length) {
       renderFallbackViz(results, query);
     } else {
@@ -264,13 +264,15 @@ export function createKnowledgeVisualizationRenderer(kbVizContent) {
     }
   }
 
-  function renderWholeKbViz(viz, results, query) {
+  function renderWholeKbViz(viz, results, query, queryPointFromBackend = null) {
     const index = ensurePointIndex(viz);
     const hitPoints = (results || []).map((result, resultIndex) => {
       const point = findPoint(index, result);
       return point ? { point, result, rank: resultIndex + 1 } : null;
     }).filter(Boolean);
-    const queryPoint = approximateQueryPoint(hitPoints, results);
+    const queryPoint = queryPointFromBackend?.projected
+      ? { x: numberValue(queryPointFromBackend.x), y: numberValue(queryPointFromBackend.y), projected: true }
+      : approximateQueryPoint(hitPoints, results);
     const stats = scoreStats(results);
 
     const shell = document.createElement("div");
@@ -296,7 +298,7 @@ export function createKnowledgeVisualizationRenderer(kbVizContent) {
     const mainWrap = document.createElement("div");
     mainWrap.className = "kb-viz-main-col";
     mainWrap.appendChild(main);
-    mainWrap.appendChild(renderMeta(viz, hitPoints));
+    mainWrap.appendChild(renderMeta(viz, hitPoints, queryPoint));
     shell.appendChild(mainWrap);
     shell.appendChild(renderSidePanel(hitPoints, queryPoint, stats));
 
@@ -400,13 +402,14 @@ export function createKnowledgeVisualizationRenderer(kbVizContent) {
     infoBox.classList.remove("hidden");
   }
 
-  function renderMeta(viz, hitPoints) {
+  function renderMeta(viz, hitPoints, queryPoint) {
     const meta = document.createElement("div");
     meta.className = "kb-viz-meta";
+    const queryLabel = queryPoint?.projected ? "用户问题真实位置" : "用户问题近似位置";
     meta.innerHTML = `
       <span><i class="kb-dot kb-dot--gray"></i> 全库片段 ${escapeHtml(viz.count || viz.points.length)}</span>
       <span><i class="kb-dot kb-dot--blue"></i> Top-K ${hitPoints.length}</span>
-      <span><i class="kb-dot kb-dot--red"></i> 用户问题近似位置</span>
+      <span><i class="kb-dot kb-dot--red"></i> ${queryLabel}</span>
       <span>方法：${escapeHtml(viz.method || "unknown")}</span>
     `;
     return meta;

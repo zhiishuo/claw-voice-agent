@@ -43,7 +43,13 @@ def build_knowledge_base(args: argparse.Namespace) -> None:
     store.build(vectors, chunks)
 
     KeywordIndex(config.keyword_index_path).build(chunks)
-    visualization = build_visualization(vectors, chunks, config.visualization_path, method=args.visualization_method)
+    visualization = build_visualization(
+        vectors,
+        chunks,
+        config.visualization_path,
+        method=args.visualization_method,
+        model_output_path=config.visualization_model_path,
+    )
     manifest_rows = _write_manifest(config.manifest_path, config.originals_dir, documents)
 
     print("Knowledge base built successfully.")

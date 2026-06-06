@@ -37,6 +37,7 @@ pytest_cache/
 *.docx
 *.xlsx
 *.csv
+*.txt
 
 .kb
 

@@ -70,18 +70,21 @@ class KnowledgeService:
         }
 
     def retrieve(self, query, top_k=None, mode=None):
+        return self.search(query, top_k=top_k, mode=mode).get("results", [])
+
+    def search(self, query, top_k=None, mode=None):
         if not self.enabled:
-            return []
+            return {"results": [], "query_point": None}
         query = str(query or "").strip()
         if not query:
-            return []
+            return {"results": [], "query_point": None}
         try:
             self._ensure_loaded()
             search_mode = (mode or self.mode).lower()
             query_vector = None
             if search_mode in {"vector", "hybrid"}:
                 query_vector = self._embedder.encode([query], batch_size=1)
-            return self._retriever.search(
+            results = self._retriever.search(
                 query,
                 query_vector=query_vector,
                 top_k=top_k or self.top_k,
@@ -89,9 +92,10 @@ class KnowledgeService:
                 vector_weight=self.vector_weight,
                 keyword_weight=self.keyword_weight,
             )
+            return {"results": results, "query_point": self._project_query_point(query_vector)}
         except Exception as exc:
             self._error = str(exc)
-            return []
+            return {"results": [], "query_point": None}
 
     def build_prompt_context(self, query):
         results = self.retrieve(query)
@@ -160,6 +164,21 @@ class KnowledgeService:
         except Exception as exc:
             self._error = str(exc)
             return {"available": False, "points": [], "error": str(exc)}
+
+    def _project_query_point(self, query_vector):
+        if query_vector is None:
+            return None
+        try:
+            from knowledge_base.visualization import project_query_vector
+
+            config = self._config
+            if config is None:
+                from knowledge_base.config import get_config
+
+                config = get_config(output_dir=self.output_dir or None, embedding_model=self.model)
+            return project_query_vector(query_vector, config.visualization_model_path)
+        except Exception:
+            return None
 
     def _ensure_loaded(self):
         if self._retriever is not None and self._embedder is not None:

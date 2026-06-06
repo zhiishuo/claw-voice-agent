@@ -100,7 +100,7 @@ function getChartOption({ viz, hitPoints, queryPoint, stats }) {
           ].filter(Boolean).join("<br>");
         }
         if (params.seriesName === "Query") {
-          return "<b>Query</b><br>用户问题近似位置";
+          return "<b>Query</b><br>用户问题二维投影位置";
         }
         const data = params.data || [];
         return `<b>${escapeHtml(pointSource({ source: data[3] }))}</b><br>chunk ${escapeHtml(data[2] ?? "")}`;

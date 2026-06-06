@@ -2500,11 +2500,18 @@ class Handler(BaseHTTPRequestHandler):
                 if not query:
                     json_response(self, HTTPStatus.BAD_REQUEST, {"ok": False, "error": "query is required"})
                     return
-                results = KNOWLEDGE_SERVICE.retrieve(query, top_k=top_k, mode=mode)
+                if hasattr(KNOWLEDGE_SERVICE, "search"):
+                    search_payload = KNOWLEDGE_SERVICE.search(query, top_k=top_k, mode=mode)
+                    results = search_payload.get("results", [])
+                    query_point = search_payload.get("query_point")
+                else:
+                    results = KNOWLEDGE_SERVICE.retrieve(query, top_k=top_k, mode=mode)
+                    query_point = None
                 json_response(self, HTTPStatus.OK, {
                     "ok": True,
                     "query": query,
                     "knowledge": KNOWLEDGE_SERVICE.status(),
+                    "query_point": query_point,
                     "results": results,
                 })
                 return
