@@ -22,6 +22,113 @@ import { initVoiceprint } from "../features/voiceprint/voiceprint-controller.js"
 import { STORAGE_KEYS, writeLocal } from "../core/storage.js";
 import { createServices } from "../services/index.js";
 
+function initLlmModelToggle(context, modelService) {
+  const buttons = Array.from(document.querySelectorAll(".llm-model-btn"));
+  const label = document.getElementById("llm-model-label");
+  const progress = document.getElementById("llm-model-progress");
+  if (!buttons.length) return;
+  let pollTimer = null;
+  let switching = false;
+
+  function normalize(value) {
+    return value === "7b" ? "7b" : "30b";
+  }
+
+  function render(status = null) {
+    const current = normalize(context.settings.llmModel);
+    const active = normalize(status?.active || current);
+    const target = normalize(status?.target || current);
+    const ready = status ? Boolean(status.ready && active === current) : true;
+    context.settings.modelReady = ready;
+    buttons.forEach((button) => {
+      const selected = button.dataset.model === current;
+      button.classList.toggle("bg-white", selected);
+      button.classList.toggle("text-blue-700", selected && ready);
+      button.classList.toggle("text-amber-700", selected && !ready);
+      button.classList.toggle("shadow-sm", selected);
+      button.classList.toggle("text-gray-400", !selected);
+      button.classList.toggle("hover:text-gray-600", !selected && !switching);
+      button.disabled = switching;
+      button.classList.toggle("opacity-60", switching);
+      button.classList.toggle("cursor-wait", switching);
+      button.setAttribute("aria-pressed", selected ? "true" : "false");
+    });
+    if (label) {
+      const activeText = active === "7b" ? "7B" : "30B";
+      const targetText = target === "7b" ? "7B" : "30B";
+      label.textContent = ready ? `模型: ${activeText}` : `切换到 ${targetText}`;
+    }
+    if (progress) {
+      const show = status && !ready;
+      progress.textContent = show ? `${status.progress || 0}% ${status.phase || "loading"}` : "";
+      progress.classList.toggle("hidden", !show);
+      progress.title = status?.logs?.length ? status.logs.slice(-5).join("\n") : (status?.message || "");
+    }
+  }
+
+  function stopPolling() {
+    if (pollTimer) clearTimeout(pollTimer);
+    pollTimer = null;
+  }
+
+  async function pollStatus() {
+    if (!modelService || !context.token) {
+      render();
+      return;
+    }
+    try {
+      const status = await modelService.status();
+      const target = normalize(status?.target || context.settings.llmModel);
+      const ready = Boolean(status?.ready && normalize(status?.active) === target);
+      context.settings.llmModel = target;
+      writeLocal(STORAGE_KEYS.llmModel, target);
+      switching = !ready;
+      render(status);
+      if (!ready) {
+        pollTimer = setTimeout(pollStatus, 2500);
+      } else {
+        stopPolling();
+      }
+    } catch (err) {
+      switching = false;
+      if (progress) {
+        progress.textContent = "状态未知";
+        progress.title = err.message || String(err);
+        progress.classList.remove("hidden");
+      }
+      render();
+    }
+  }
+
+  buttons.forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (switching || !modelService) return;
+      const next = normalize(button.dataset.model);
+      context.settings.llmModel = next;
+      writeLocal(STORAGE_KEYS.llmModel, context.settings.llmModel);
+      switching = true;
+      render();
+      try {
+        const status = await modelService.switchModel(next);
+        render(status);
+        stopPolling();
+        pollTimer = setTimeout(pollStatus, 1500);
+      } catch (err) {
+        switching = false;
+        if (progress) {
+          progress.textContent = "切换失败";
+          progress.title = err.message || String(err);
+          progress.classList.remove("hidden");
+        }
+        render();
+      }
+    });
+  });
+
+  render();
+  void pollStatus();
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const textarea = document.getElementById("chat-input");
   const sendBtn = document.getElementById("send-btn");
@@ -89,6 +196,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initAudioPlaybackGlobals();
   initCitationTabGlobals();
   initVoiceModeToggle();
+  initLlmModelToggle(context, services.model);
   const authCard = initAuthTokenCard({
     context,
     authService: services.auth,

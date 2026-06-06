@@ -10,4 +10,5 @@ export const DEFAULT_CONFIG = {
   autoPrependWake: true,
   streamingMode: true,
   wakeDetection: true,
+  llmModel: "30b",
 };

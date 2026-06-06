@@ -171,6 +171,12 @@
                                     <div id="kb-thumb" class="w-2.5 h-2.5 bg-white rounded-full absolute left-[2px] top-[2px] transition-transform shadow-sm"></div>
                                 </div>
                             </button>
+                            <div class="flex items-center bg-gray-100/80 rounded-md p-0.5 border border-gray-200/60" id="llm-model-toggle" title="选择本次对话使用的大模型">
+                                <span id="llm-model-label" class="px-2 text-[11px] font-medium text-gray-500 hidden sm:inline">模型</span>
+                                <button class="llm-model-btn px-2.5 py-1 text-gray-400 hover:text-gray-600 rounded-[4px] font-medium transition-all" data-model="7b">7B 快速</button>
+                                <button class="llm-model-btn px-2.5 py-1 text-gray-400 hover:text-gray-600 rounded-[4px] font-medium transition-all" data-model="30b">30B 深度</button>
+                                <span id="llm-model-progress" class="px-2 text-[11px] font-medium text-gray-400 hidden sm:inline"></span>
+                            </div>
                         </div>
                         <div class="flex items-center gap-3">
                             <!-- 麦克风下拉菜单容器 -->

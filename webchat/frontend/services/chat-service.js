@@ -9,19 +9,19 @@ export function createChatService(http, { getClientId, getSession } = {}) {
   }
 
   return {
-    send({ session, message, knowledgeEnabled = true, requestId }) {
+    send({ session, message, knowledgeEnabled = true, llmModel = "30b", requestId }) {
       return http.request("/api/chat", {
         method: "POST",
         headers: commonHeaders(requestId),
-        body: JSON.stringify({ session, message, knowledgeEnabled }),
+        body: JSON.stringify({ session, message, knowledgeEnabled, llmModel }),
       });
     },
 
-    suggestions({ session, question, answer, citations = [], requestId }) {
+    suggestions({ session, question, answer, citations = [], llmModel = "30b", requestId }) {
       return http.request("/api/chat/suggestions", {
         method: "POST",
         headers: commonHeaders(requestId),
-        body: JSON.stringify({ session, question, answer, citations }),
+        body: JSON.stringify({ session, question, answer, citations, llmModel }),
       });
     },
   };

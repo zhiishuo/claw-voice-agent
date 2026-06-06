@@ -3,6 +3,7 @@ import { createChatService } from "./chat-service.js";
 import { createDebugService } from "./debug-service.js";
 import { createHttpClient } from "./http-client.js";
 import { createKnowledgeService } from "./knowledge-service.js";
+import { createModelService } from "./model-service.js";
 import { createSessionService } from "./session-service.js";
 import { createSpeakerService } from "./speaker-service.js";
 import { createTranscriptionService } from "./transcription-service.js";
@@ -23,6 +24,7 @@ export function createServices(context) {
     chat: createChatService(http, common),
     debug: createDebugService(http),
     knowledge: createKnowledgeService(http),
+    model: createModelService(http),
     sessions: createSessionService(http),
     speaker: createSpeakerService(http, common),
     transcription: createTranscriptionService(http, common),

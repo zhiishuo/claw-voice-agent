@@ -440,6 +440,10 @@ export function createRealChatFlow({ chatContainer, chatService, ttsService, con
       appendUserMessage(chatContainer, text, audioUrl);
     }
     appendAssistantShell(chatContainer, requestId);
+    if (context.settings.modelReady === false) {
+      showError(requestId, "模型正在加载，请等按钮状态显示完成后再发送。");
+      return;
+    }
 
     try {
       // Step 1: 声纹与唤醒词检测
@@ -474,6 +478,7 @@ export function createRealChatFlow({ chatContainer, chatService, ttsService, con
         session: context.session,
         message: text,
         knowledgeEnabled: isKnowledgeEnabled(),
+        llmModel: context.settings.llmModel || "30b",
         requestId,
       });
       const fallbackReply = Array.isArray(data.messages)
@@ -498,6 +503,7 @@ export function createRealChatFlow({ chatContainer, chatService, ttsService, con
           question: text,
           answer: reply,
           citations,
+          llmModel: context.settings.llmModel || "30b",
           requestId,
         }).then((sugData) => {
           const suggestions = Array.isArray(sugData?.suggestions) ? sugData.suggestions : [];
@@ -551,6 +557,7 @@ export function createRealChatFlow({ chatContainer, chatService, ttsService, con
         requestId,
         text,
         reply,
+        llmModel: context.settings.llmModel || "30b",
         status: "ok",
       });
 

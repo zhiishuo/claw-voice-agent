@@ -55,6 +55,39 @@ FAST_LLM_MAX_TOKENS = int(os.environ.get("OPENCLAW_FAST_LLM_MAX_TOKENS", "96"))
 FAST_LLM_TIMEOUT = float(os.environ.get("OPENCLAW_FAST_LLM_TIMEOUT", "4.0"))
 FAST_HISTORY_TURNS = int(os.environ.get("OPENCLAW_FAST_HISTORY_TURNS", "3"))
 FAST_TTS_MAX_CHARS = int(os.environ.get("OPENCLAW_FAST_TTS_MAX_CHARS", "0"))
+
+
+def normalize_llm_choice(value, default="30b"):
+    text = str(value or "").strip().lower()
+    compact = re.sub(r"[^a-z0-9.]+", "", text)
+    if compact in {"7", "7b"} or "7b" in compact:
+        return "7b"
+    if compact in {"30", "30b"} or "30b" in compact:
+        return "30b"
+    return default if default in {"7b", "30b"} else "30b"
+
+
+FAST_LLM_DEFAULT_CHOICE = normalize_llm_choice(os.environ.get("OPENCLAW_FAST_LLM_DEFAULT", "30b"))
+FAST_LLM_CONFIGS = {
+    "30b": {
+        "label": os.environ.get("OPENCLAW_FAST_LLM_30B_LABEL", "Qwen3 30B"),
+        "url": os.environ.get("OPENCLAW_FAST_LLM_30B_URL", FAST_LLM_URL),
+        "model": os.environ.get("OPENCLAW_FAST_LLM_30B_MODEL", FAST_LLM_MODEL),
+        "api_key": os.environ.get("OPENCLAW_FAST_LLM_30B_API_KEY", FAST_LLM_API_KEY),
+        "max_tokens": int(os.environ.get("OPENCLAW_FAST_LLM_30B_MAX_TOKENS", str(FAST_LLM_MAX_TOKENS))),
+        "timeout": float(os.environ.get("OPENCLAW_FAST_LLM_30B_TIMEOUT", str(FAST_LLM_TIMEOUT))),
+        "no_think": os.environ.get("OPENCLAW_FAST_LLM_30B_NO_THINK", "1").strip().lower() not in {"0", "false", "no"},
+    },
+    "7b": {
+        "label": os.environ.get("OPENCLAW_FAST_LLM_7B_LABEL", "Qwen2.5 7B"),
+        "url": os.environ.get("OPENCLAW_FAST_LLM_7B_URL", FAST_LLM_URL),
+        "model": os.environ.get("OPENCLAW_FAST_LLM_7B_MODEL", FAST_LLM_MODEL),
+        "api_key": os.environ.get("OPENCLAW_FAST_LLM_7B_API_KEY", FAST_LLM_API_KEY),
+        "max_tokens": int(os.environ.get("OPENCLAW_FAST_LLM_7B_MAX_TOKENS", str(min(FAST_LLM_MAX_TOKENS, 2048)))),
+        "timeout": float(os.environ.get("OPENCLAW_FAST_LLM_7B_TIMEOUT", str(FAST_LLM_TIMEOUT))),
+        "no_think": os.environ.get("OPENCLAW_FAST_LLM_7B_NO_THINK", "0").strip().lower() not in {"0", "false", "no"},
+    },
+}
 DATA_DIR = pathlib.Path(os.environ.get("OPENCLAW_WEBCHAT_DATA", str(OPENCLAW_HOME / "webchat/data")))
 UPLOAD_DIR = pathlib.Path(os.environ.get("OPENCLAW_WEBCHAT_UPLOADS", str(OPENCLAW_HOME / "webchat/uploads")))
 TTS_DIR = pathlib.Path(os.environ.get("OPENCLAW_WEBCHAT_TTS", str(OPENCLAW_HOME / "webchat/tts")))
@@ -66,7 +99,46 @@ OPENCLAW_CONFIG_PATH = pathlib.Path(os.environ.get("OPENCLAW_CONFIG_PATH", str(O
 TLS_CERT_PATH = os.environ.get("OPENCLAW_WEBCHAT_TLS_CERT", "").strip()
 TLS_KEY_PATH = os.environ.get("OPENCLAW_WEBCHAT_TLS_KEY", "").strip()
 LOCK = threading.Lock()
+MODEL_SWITCH_LOCK = threading.Lock()
 SPEAKER_VERIFIER = SpeakerVerifier()
+
+VLLM_SERVICE_NAME = os.environ.get("OPENCLAW_VLLM_SERVICE", "vllm-qwen.service")
+VLLM_OVERRIDE_PATH = pathlib.Path(os.environ.get(
+    "OPENCLAW_VLLM_OVERRIDE_PATH",
+    str(pathlib.Path.home() / ".config/systemd/user/vllm-qwen.service.d/override.conf"),
+))
+MODEL_SWITCH_STATE_PATH = pathlib.Path(os.environ.get(
+    "OPENCLAW_MODEL_SWITCH_STATE",
+    str(OPENCLAW_HOME / "webchat/model-switch-state.json"),
+))
+VLLM_BIN = os.environ.get("OPENCLAW_VLLM_BIN", "/home/aa-3090/anaconda3/envs/torch290_cu128_py310/bin/vllm")
+VLLM_ENV_PATH = os.environ.get(
+    "OPENCLAW_VLLM_PATH",
+    "/home/aa-3090/anaconda3/envs/torch290_cu128_py310/bin:/home/aa-3090/anaconda3/condabin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+)
+VLLM_ENV_LD_LIBRARY_PATH = os.environ.get("OPENCLAW_VLLM_LD_LIBRARY_PATH", "/home/aa-3090/anaconda3/envs/torch290_cu128_py310/lib")
+VLLM_MODEL_CHOICES = {
+    "30b": {
+        "label": "Qwen3 30B",
+        "root": "/home/data1/zzs/models/Qwen/Qwen3-30B-A3B-FP8",
+        "served_model": "qwen-local",
+        "gpu_memory_utilization": "0.82",
+        "max_model_len": "32768",
+        "max_num_seqs": "8",
+        "tool_call_parser": "qwen3_xml",
+        "no_think": True,
+    },
+    "7b": {
+        "label": "Qwen2.5 7B",
+        "root": "/home/aa-3090/assgpt/models_cache/Qwen/Qwen2___5-7B-Instruct",
+        "served_model": "qwen-local",
+        "gpu_memory_utilization": "0.60",
+        "max_model_len": "32768",
+        "max_num_seqs": "",
+        "tool_call_parser": "hermes",
+        "no_think": False,
+    },
+}
 
 try:
     from knowledge_service import KNOWLEDGE_SERVICE
@@ -1721,6 +1793,206 @@ def save_messages(session, messages):
     session_file(session).write_text(json.dumps(messages, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 # 加一条消息并保存。
+
+def qwen_no_think_message(message):
+    text = str(message or "")
+    if "/no_think" in text or "/think" in text:
+        return text
+    return text.rstrip() + "\n/no_think"
+
+
+def strip_reasoning_text(text):
+    value = str(text or "").strip()
+    value = re.sub(r"(?is)^\s*<think>.*?</think>\s*", "", value).strip()
+    value = re.sub(r"(?is)^\s*<think>.*$", "", value).strip()
+    return value
+
+
+def read_model_switch_state():
+    try:
+        if MODEL_SWITCH_STATE_PATH.exists():
+            data = json.loads(MODEL_SWITCH_STATE_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+    except Exception:
+        return {}
+    return {}
+
+
+def write_model_switch_state(**patch):
+    MODEL_SWITCH_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    state = read_model_switch_state()
+    state.update(patch)
+    MODEL_SWITCH_STATE_PATH.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return state
+
+
+def model_choice_for_root(root):
+    value = str(root or "").rstrip("/")
+    for choice, info in VLLM_MODEL_CHOICES.items():
+        if value == str(info["root"]).rstrip("/"):
+            return choice
+    return ""
+
+
+def run_quiet(cmd, timeout=8):
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+
+
+def vllm_journal_lines(limit=30):
+    try:
+        proc = run_quiet(["journalctl", "--user", "-u", VLLM_SERVICE_NAME, "-n", str(limit), "--no-pager"], timeout=4)
+        if proc.returncode != 0:
+            return []
+        lines = []
+        useful = (
+            "Starting", "Started", "Stopping", "Stopped", "Loading", "load", "weights",
+            "Resolved architecture", "max model len", "Application startup complete",
+            "Graph capturing", "CUDA", "error", "Error", "Traceback", "Exception",
+            "HTTP/1.1", "vLLM",
+        )
+        for line in proc.stdout.splitlines():
+            if any(token in line for token in useful):
+                lines.append(line[-500:])
+        return lines[-12:]
+    except Exception:
+        return []
+
+
+def vllm_models_endpoint(timeout=1.5):
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:8000/v1/models", timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        items = data.get("data") if isinstance(data, dict) else []
+        first = items[0] if items else {}
+        root = str(first.get("root") or "")
+        model_id = str(first.get("id") or "")
+        return {"ok": True, "root": root, "model": model_id, "choice": model_choice_for_root(root), "error": ""}
+    except Exception as exc:
+        return {"ok": False, "root": "", "model": "", "choice": "", "error": str(exc)}
+
+
+def get_vllm_service_state():
+    try:
+        proc = run_quiet(["systemctl", "--user", "is-active", VLLM_SERVICE_NAME], timeout=3)
+        return (proc.stdout or proc.stderr or "unknown").strip()
+    except Exception as exc:
+        return f"error: {exc}"
+
+
+def model_status():
+    state = read_model_switch_state()
+    endpoint = vllm_models_endpoint()
+    service_state = get_vllm_service_state()
+    active_choice = endpoint.get("choice") or ""
+    target_choice = normalize_llm_choice(state.get("target") or active_choice or FAST_LLM_DEFAULT_CHOICE, FAST_LLM_DEFAULT_CHOICE)
+    ready = bool(endpoint.get("ok")) and active_choice == target_choice and service_state == "active"
+    if ready:
+        phase = "ready"
+        progress = 100
+        message = f"{VLLM_MODEL_CHOICES[target_choice]['label']} 已加载完成"
+    elif service_state not in {"active", "activating"}:
+        phase = "restarting"
+        progress = 20
+        message = "vLLM 正在重启"
+    elif not endpoint.get("ok"):
+        phase = "loading"
+        progress = 65
+        message = "模型正在加载，接口暂未就绪"
+    elif active_choice and active_choice != target_choice:
+        phase = "switching"
+        progress = 80
+        message = "服务已响应，等待目标模型完成切换"
+    else:
+        phase = "loading"
+        progress = 50
+        message = "正在确认模型状态"
+
+    return {
+        "ok": True,
+        "ready": ready,
+        "phase": phase,
+        "progress": progress,
+        "message": message,
+        "target": target_choice,
+        "targetLabel": VLLM_MODEL_CHOICES[target_choice]["label"],
+        "active": active_choice,
+        "activeLabel": VLLM_MODEL_CHOICES.get(active_choice, {}).get("label", ""),
+        "service": service_state,
+        "endpoint": endpoint,
+        "state": state,
+        "choices": {
+            key: {"label": value["label"], "root": value["root"]}
+            for key, value in VLLM_MODEL_CHOICES.items()
+        },
+        "logs": vllm_journal_lines(),
+    }
+
+
+def build_vllm_override(choice):
+    info = VLLM_MODEL_CHOICES[choice]
+    args = [
+        VLLM_BIN,
+        "serve",
+        info["root"],
+        "--host", "127.0.0.1",
+        "--port", "8000",
+        "--served-model-name", info["served_model"],
+        "--gpu-memory-utilization", info["gpu_memory_utilization"],
+        "--max-model-len", info["max_model_len"],
+        "--dtype", "auto",
+        "--enable-auto-tool-choice",
+        "--tool-call-parser", info["tool_call_parser"],
+        "--enforce-eager",
+    ]
+    if info.get("max_num_seqs"):
+        args[args.index("--dtype"):args.index("--dtype")] = ["--max-num-seqs", info["max_num_seqs"]]
+    lines = [
+        "[Service]",
+        f"Environment=PATH={VLLM_ENV_PATH}",
+        f"Environment=LD_LIBRARY_PATH={VLLM_ENV_LD_LIBRARY_PATH}",
+        "Environment=CUDA_VISIBLE_DEVICES=0",
+        "Environment=VLLM_WORKER_MULTIPROC_METHOD=spawn",
+        "Environment=HF_HOME=/home/data1/zzs/hf_cache",
+        "Environment=HF_ENDPOINT=https://hf-mirror.com",
+        "Environment=HF_HUB_DISABLE_XET=1",
+        "ExecStart=",
+        "ExecStart=" + " ".join(args),
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def switch_vllm_model(choice):
+    choice = normalize_llm_choice(choice, FAST_LLM_DEFAULT_CHOICE)
+    if choice not in VLLM_MODEL_CHOICES:
+        raise RuntimeError(f"unsupported model choice: {choice}")
+    root = pathlib.Path(VLLM_MODEL_CHOICES[choice]["root"])
+    if not root.exists():
+        raise RuntimeError(f"model directory missing: {root}")
+    with MODEL_SWITCH_LOCK:
+        write_model_switch_state(target=choice, phase="switching", requestedAt=int(time.time() * 1000), error="")
+        VLLM_OVERRIDE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        VLLM_OVERRIDE_PATH.write_text(build_vllm_override(choice), encoding="utf-8")
+        daemon = run_quiet(["systemctl", "--user", "daemon-reload"], timeout=10)
+        if daemon.returncode != 0:
+            err = (daemon.stderr or daemon.stdout or "").strip()
+            write_model_switch_state(target=choice, phase="error", error=err)
+            raise RuntimeError(err or "systemctl daemon-reload failed")
+        restart = run_quiet(["systemctl", "--user", "restart", VLLM_SERVICE_NAME], timeout=20)
+        if restart.returncode != 0:
+            err = (restart.stderr or restart.stdout or "").strip()
+            write_model_switch_state(target=choice, phase="error", error=err)
+            raise RuntimeError(err or f"systemctl restart {VLLM_SERVICE_NAME} failed")
+        write_model_switch_state(target=choice, phase="loading", restartedAt=int(time.time() * 1000), error="")
+    return model_status()
+
+
+def resolve_fast_llm_config(llm_model=None):
+    choice = normalize_llm_choice(llm_model, FAST_LLM_DEFAULT_CHOICE)
+    config = FAST_LLM_CONFIGS.get(choice) or FAST_LLM_CONFIGS[FAST_LLM_DEFAULT_CHOICE]
+    return choice, config
+
+
 def payload_bool(payload, name, default=True):
     value = payload.get(name, default) if isinstance(payload, dict) else default
     if isinstance(value, bool):
@@ -1817,7 +2089,7 @@ def run_fast_llm_legacy_unused(session, message, knowledge_enabled=True):
         data = json.loads(resp.read().decode("utf-8"))
     elapsed_ms = int((time.perf_counter() - start) * 1000)
     choice = (data.get("choices") or [{}])[0]
-    reply = str(((choice.get("message") or {}).get("content")) or "").strip()
+    reply = strip_reasoning_text(((choice.get("message") or {}).get("content")) or "")
     if not reply:
         reply = "[empty fast reply]"
     return reply, {
@@ -1833,7 +2105,8 @@ def run_fast_llm_legacy_unused(session, message, knowledge_enabled=True):
     }
 
 
-def run_fast_llm(session, message, knowledge_enabled=True):
+def run_fast_llm(session, message, knowledge_enabled=True, llm_model=None):
+    llm_choice, llm_config = resolve_fast_llm_config(llm_model)
     history = load_messages(session)[-(FAST_HISTORY_TURNS * 2):] if FAST_HISTORY_TURNS > 0 else []
     if knowledge_enabled:
         kb_context, kb_citations = KNOWLEDGE_SERVICE.build_prompt_context(message)
@@ -1849,35 +2122,39 @@ def run_fast_llm(session, message, knowledge_enabled=True):
         content = str(item.get("content") or "").strip()
         if role in {"user", "assistant"} and content:
             messages.append({"role": role, "content": content[:500]})
-    messages.append({"role": "user", "content": message})
+    user_message = qwen_no_think_message(message) if llm_config.get("no_think") else str(message or "")
+    messages.append({"role": "user", "content": user_message})
 
     payload = {
-        "model": FAST_LLM_MODEL,
+        "model": llm_config["model"],
         "messages": messages,
         "temperature": 0.2,
-        "max_tokens": FAST_LLM_MAX_TOKENS,
+        "max_tokens": llm_config["max_tokens"],
         "stream": False,
     }
     req = urllib.request.Request(
-        FAST_LLM_URL,
+        llm_config["url"],
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         headers={
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {FAST_LLM_API_KEY}",
+            "Authorization": f"Bearer {llm_config['api_key']}",
         },
         method="POST",
     )
     start = time.perf_counter()
-    with urllib.request.urlopen(req, timeout=FAST_LLM_TIMEOUT) as resp:
+    with urllib.request.urlopen(req, timeout=llm_config["timeout"]) as resp:
         data = json.loads(resp.read().decode("utf-8"))
     elapsed_ms = int((time.perf_counter() - start) * 1000)
     choice = (data.get("choices") or [{}])[0]
-    reply = str(((choice.get("message") or {}).get("content")) or "").strip()
+    reply = strip_reasoning_text(((choice.get("message") or {}).get("content")) or "")
     if not reply:
         reply = "[empty fast reply]"
     return reply, {
         "mode": "fast-direct-vllm",
-        "model": FAST_LLM_MODEL,
+        "model": llm_config["model"],
+        "llmModel": llm_choice,
+        "llmLabel": llm_config["label"],
+        "llmUrl": llm_config["url"],
         "elapsedMs": elapsed_ms,
         "usage": data.get("usage"),
         "knowledge": {
@@ -1933,42 +2210,46 @@ def parse_suggestion_items(content):
     return suggestions
 
 
-def generate_chat_suggestions(question, answer, citations):
+def generate_chat_suggestions(question, answer, citations, llm_model=None):
+    llm_choice, llm_config = resolve_fast_llm_config(llm_model)
     messages = build_suggestion_messages(question, answer, citations)
     payload = {
-        "model": FAST_LLM_MODEL,
+        "model": llm_config["model"],
         "messages": messages,
         "temperature": 0.4,
-        "max_tokens": min(max(FAST_LLM_MAX_TOKENS, 128), 512),
+        "max_tokens": min(max(llm_config["max_tokens"], 128), 512),
         "stream": False,
     }
     req = urllib.request.Request(
-        FAST_LLM_URL,
+        llm_config["url"],
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         headers={
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {FAST_LLM_API_KEY}",
+            "Authorization": f"Bearer {llm_config['api_key']}",
         },
         method="POST",
     )
     start = time.perf_counter()
-    with urllib.request.urlopen(req, timeout=FAST_LLM_TIMEOUT) as resp:
+    with urllib.request.urlopen(req, timeout=llm_config["timeout"]) as resp:
         data = json.loads(resp.read().decode("utf-8"))
     elapsed_ms = int((time.perf_counter() - start) * 1000)
     choice = (data.get("choices") or [{}])[0]
-    content = str(((choice.get("message") or {}).get("content")) or "").strip()
+    content = strip_reasoning_text(((choice.get("message") or {}).get("content")) or "")
     return parse_suggestion_items(content), {
         "mode": "fast-suggestions",
-        "model": FAST_LLM_MODEL,
+        "model": llm_config["model"],
+        "llmModel": llm_choice,
+        "llmLabel": llm_config["label"],
+        "llmUrl": llm_config["url"],
         "elapsedMs": elapsed_ms,
         "usage": data.get("usage"),
         "raw": content,
     }
 
 
-def run_chat_backend(session, message, knowledge_enabled=True):
+def run_chat_backend(session, message, knowledge_enabled=True, llm_model=None):
     if FAST_MODE:
-        return run_fast_llm(session, message, knowledge_enabled=knowledge_enabled)
+        return run_fast_llm(session, message, knowledge_enabled=knowledge_enabled, llm_model=llm_model)
     return run_openclaw(session, message, knowledge_enabled=knowledge_enabled)
 
 
@@ -2368,10 +2649,23 @@ class Handler(BaseHTTPRequestHandler):
                 "fastLlmUrl": FAST_LLM_URL,
                 "fastLlmModel": FAST_LLM_MODEL,
                 "fastMaxTokens": FAST_LLM_MAX_TOKENS,
+                "fastDefaultLlm": FAST_LLM_DEFAULT_CHOICE,
+                "fastLlmChoices": {
+                    key: {
+                        "label": value["label"],
+                        "url": value["url"],
+                        "model": value["model"],
+                        "maxTokens": value["max_tokens"],
+                    }
+                    for key, value in FAST_LLM_CONFIGS.items()
+                },
             })
             return
         if not require_auth(self, parsed):
             json_response(self, HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
+            return
+        if parsed.path == "/api/model/status":
+            json_response(self, HTTPStatus.OK, model_status())
             return
         if parsed.path == "/api/debug/last":
             try:
@@ -2538,18 +2832,31 @@ class Handler(BaseHTTPRequestHandler):
                 status = HTTPStatus.OK if result.get("ok") else HTTPStatus.BAD_REQUEST
                 json_response(self, status, result)
                 return
+            if parsed.path == "/api/model/switch":
+                payload = json.loads(raw.decode("utf-8") if raw else "{}")
+                llm_model = normalize_llm_choice(payload.get("llmModel") or payload.get("model"), FAST_LLM_DEFAULT_CHOICE)
+                log_event("model_switch_request", remote=self.client_address[0], clientId=client_id, requestId=request_id, llmModel=llm_model)
+                status = switch_vllm_model(llm_model)
+                log_event("model_switch_started", clientId=client_id, requestId=request_id, target=status.get("target"), phase=status.get("phase"), progress=status.get("progress"))
+                json_response(self, HTTPStatus.OK, status)
+                return
             if parsed.path == "/api/chat/suggestions":
                 payload = json.loads(raw.decode("utf-8") if raw else "{}")
                 session = sanitize_session(payload.get("session"))
                 question = str(payload.get("question") or "").strip()
                 answer = str(payload.get("answer") or "").strip()
                 citations = payload.get("citations") if isinstance(payload.get("citations"), list) else []
-                log_event("chat_suggestions_request", remote=self.client_address[0], bytes=len(raw), clientId=client_id, requestId=request_id, session=session, citations=len(citations))
+                llm_model = normalize_llm_choice(payload.get("llmModel"), FAST_LLM_DEFAULT_CHOICE)
+                log_event("chat_suggestions_request", remote=self.client_address[0], bytes=len(raw), clientId=client_id, requestId=request_id, session=session, citations=len(citations), llmModel=llm_model)
                 if not question or not answer:
                     json_response(self, HTTPStatus.OK, {"ok": True, "suggestions": [], "meta": {"reason": "missing_question_or_answer"}})
                     return
-                suggestions, meta = generate_chat_suggestions(question, answer, citations)
-                log_event("chat_suggestions_response", session=session, count=len(suggestions), elapsedMs=meta.get("elapsedMs"), rawPreview=str(meta.get("raw") or "")[:300], clientId=client_id, requestId=request_id)
+                status = model_status()
+                if not status.get("ready") or status.get("active") != llm_model:
+                    json_response(self, HTTPStatus.CONFLICT, {"error": "model_loading", "modelStatus": status})
+                    return
+                suggestions, meta = generate_chat_suggestions(question, answer, citations, llm_model=llm_model)
+                log_event("chat_suggestions_response", session=session, count=len(suggestions), model=meta.get("model"), llmModel=meta.get("llmModel"), elapsedMs=meta.get("elapsedMs"), rawPreview=str(meta.get("raw") or "")[:300], clientId=client_id, requestId=request_id)
                 json_response(self, HTTPStatus.OK, {
                     "ok": True,
                     "session": session,
@@ -2565,12 +2872,17 @@ class Handler(BaseHTTPRequestHandler):
                 if not message:
                     raise RuntimeError("message is required")
                 knowledge_enabled = payload_bool(payload, "knowledgeEnabled", True)
+                llm_model = normalize_llm_choice(payload.get("llmModel"), FAST_LLM_DEFAULT_CHOICE)
+                status = model_status()
+                if not status.get("ready") or status.get("active") != llm_model:
+                    json_response(self, HTTPStatus.CONFLICT, {"error": "model_loading", "modelStatus": status})
+                    return
                 append_message(session, "user", message)
                 chat_start = time.perf_counter()
-                reply, meta = run_chat_backend(session, message, knowledge_enabled=knowledge_enabled)
+                reply, meta = run_chat_backend(session, message, knowledge_enabled=knowledge_enabled, llm_model=llm_model)
                 chat_elapsed_ms = int((time.perf_counter() - chat_start) * 1000)
                 messages = append_message(session, "assistant", reply)
-                log_event("chat_response", session=session, mode=meta.get("mode"), runId=meta.get("runId"), replyChars=len(reply), elapsedMs=chat_elapsed_ms, clientId=client_id, requestId=request_id)
+                log_event("chat_response", session=session, mode=meta.get("mode"), model=meta.get("model"), llmModel=meta.get("llmModel"), runId=meta.get("runId"), replyChars=len(reply), elapsedMs=chat_elapsed_ms, clientId=client_id, requestId=request_id)
                 json_response(self, HTTPStatus.OK, {
                     "ok": True,
                     "session": session,

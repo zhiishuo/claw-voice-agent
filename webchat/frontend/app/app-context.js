@@ -28,6 +28,7 @@ export function createAppContext() {
       wakePhrase: readLocal(STORAGE_KEYS.wakePhrase, DEFAULT_CONFIG.wakePhrase),
       streamingMode: readLocal(STORAGE_KEYS.streamingMode, DEFAULT_CONFIG.streamingMode ? "1" : "0") !== "0",
       wakeDetection: readLocal(STORAGE_KEYS.wakeDetection, DEFAULT_CONFIG.wakeDetection ? "1" : "0") !== "0",
+      llmModel: readLocal(STORAGE_KEYS.llmModel, DEFAULT_CONFIG.llmModel) === "7b" ? "7b" : "30b",
     },
   };
 }
