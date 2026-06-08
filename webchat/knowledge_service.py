@@ -47,7 +47,7 @@ class KnowledgeService:
         if self.mode not in {"hybrid", "vector", "keyword"}:
             self.mode = "hybrid"
         self.top_k = _env_int("OPENCLAW_KB_TOP_K", 4)
-        self.preview_chars = _env_int("OPENCLAW_KB_PREVIEW_CHARS", 700)
+        self.preview_chars = _env_int("OPENCLAW_KB_PREVIEW_CHARS", 300)
         self.vector_weight = _env_float("OPENCLAW_KB_VECTOR_WEIGHT", 0.7)
         self.keyword_weight = _env_float("OPENCLAW_KB_KEYWORD_WEIGHT", 0.3)
         self._lock = threading.Lock()

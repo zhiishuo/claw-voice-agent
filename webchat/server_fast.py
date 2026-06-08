@@ -80,7 +80,7 @@ FAST_LLM_CONFIGS = {
     },
     "7b": {
         "label": os.environ.get("OPENCLAW_FAST_LLM_7B_LABEL", "Qwen2.5 7B"),
-        "url": os.environ.get("OPENCLAW_FAST_LLM_7B_URL", FAST_LLM_URL),
+        "url": os.environ.get("OPENCLAW_FAST_LLM_7B_URL", "http://127.0.0.1:8001/v1/chat/completions"),
         "model": os.environ.get("OPENCLAW_FAST_LLM_7B_MODEL", FAST_LLM_MODEL),
         "api_key": os.environ.get("OPENCLAW_FAST_LLM_7B_API_KEY", FAST_LLM_API_KEY),
         "max_tokens": int(os.environ.get("OPENCLAW_FAST_LLM_7B_MAX_TOKENS", str(min(FAST_LLM_MAX_TOKENS, 2048)))),
@@ -122,9 +122,12 @@ VLLM_MODEL_CHOICES = {
         "label": "Qwen3 30B",
         "root": "/home/data1/zzs/models/Qwen/Qwen3-30B-A3B-FP8",
         "served_model": "qwen-local",
-        "gpu_memory_utilization": "0.82",
-        "max_model_len": "32768",
-        "max_num_seqs": "8",
+        "service": "vllm-qwen.service",
+        "port": 8000,
+        "url": "http://127.0.0.1:8000/v1/chat/completions",
+        "gpu_memory_utilization": "0.66",
+        "max_model_len": "16384",
+        "max_num_seqs": "4",
         "tool_call_parser": "qwen3_xml",
         "no_think": True,
     },
@@ -132,9 +135,12 @@ VLLM_MODEL_CHOICES = {
         "label": "Qwen2.5 7B",
         "root": "/home/aa-3090/assgpt/models_cache/Qwen/Qwen2___5-7B-Instruct",
         "served_model": "qwen-local",
-        "gpu_memory_utilization": "0.60",
-        "max_model_len": "32768",
-        "max_num_seqs": "",
+        "service": "vllm-qwen7b.service",
+        "port": 8001,
+        "url": "http://127.0.0.1:8001/v1/chat/completions",
+        "gpu_memory_utilization": "0.24",
+        "max_model_len": "4096",
+        "max_num_seqs": "2",
         "tool_call_parser": "hermes",
         "no_think": False,
     },
@@ -1839,9 +1845,9 @@ def run_quiet(cmd, timeout=8):
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
 
-def vllm_journal_lines(limit=30):
+def vllm_journal_lines(service_name=VLLM_SERVICE_NAME, limit=30):
     try:
-        proc = run_quiet(["journalctl", "--user", "-u", VLLM_SERVICE_NAME, "-n", str(limit), "--no-pager"], timeout=4)
+        proc = run_quiet(["journalctl", "--user", "-u", service_name, "-n", str(limit), "--no-pager"], timeout=4)
         if proc.returncode != 0:
             return []
         lines = []
@@ -1859,9 +1865,9 @@ def vllm_journal_lines(limit=30):
         return []
 
 
-def vllm_models_endpoint(timeout=1.5):
+def vllm_models_endpoint(port=8000, timeout=1.5):
     try:
-        with urllib.request.urlopen("http://127.0.0.1:8000/v1/models", timeout=timeout) as resp:
+        with urllib.request.urlopen(f"http://127.0.0.1:{int(port)}/v1/models", timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         items = data.get("data") if isinstance(data, dict) else []
         first = items[0] if items else {}
@@ -1872,9 +1878,9 @@ def vllm_models_endpoint(timeout=1.5):
         return {"ok": False, "root": "", "model": "", "choice": "", "error": str(exc)}
 
 
-def get_vllm_service_state():
+def get_vllm_service_state(service_name=VLLM_SERVICE_NAME):
     try:
-        proc = run_quiet(["systemctl", "--user", "is-active", VLLM_SERVICE_NAME], timeout=3)
+        proc = run_quiet(["systemctl", "--user", "is-active", service_name], timeout=3)
         return (proc.stdout or proc.stderr or "unknown").strip()
     except Exception as exc:
         return f"error: {exc}"
@@ -1882,20 +1888,34 @@ def get_vllm_service_state():
 
 def model_status():
     state = read_model_switch_state()
-    endpoint = vllm_models_endpoint()
-    service_state = get_vllm_service_state()
-    active_choice = endpoint.get("choice") or ""
-    target_choice = normalize_llm_choice(state.get("target") or active_choice or FAST_LLM_DEFAULT_CHOICE, FAST_LLM_DEFAULT_CHOICE)
-    ready = bool(endpoint.get("ok")) and active_choice == target_choice and service_state == "active"
+    target_choice = normalize_llm_choice(state.get("target") or FAST_LLM_DEFAULT_CHOICE, FAST_LLM_DEFAULT_CHOICE)
+    choice_status = {}
+    for choice, info in VLLM_MODEL_CHOICES.items():
+        endpoint = vllm_models_endpoint(info["port"])
+        service_state = get_vllm_service_state(info["service"])
+        ready = bool(endpoint.get("ok")) and endpoint.get("choice") == choice and service_state == "active"
+        choice_status[choice] = {
+            "ready": ready,
+            "service": service_state,
+            "endpoint": endpoint,
+            "label": info["label"],
+            "url": info["url"],
+            "port": info["port"],
+            "root": info["root"],
+            "logs": vllm_journal_lines(info["service"], limit=20),
+        }
+    target_status = choice_status[target_choice]
+    active_choice = target_choice if target_status.get("ready") else next((key for key, value in choice_status.items() if value.get("ready")), "")
+    ready = bool(target_status.get("ready"))
     if ready:
         phase = "ready"
         progress = 100
         message = f"{VLLM_MODEL_CHOICES[target_choice]['label']} 已加载完成"
-    elif service_state not in {"active", "activating"}:
+    elif target_status.get("service") not in {"active", "activating"}:
         phase = "restarting"
         progress = 20
-        message = "vLLM 正在重启"
-    elif not endpoint.get("ok"):
+        message = f"{VLLM_MODEL_CHOICES[target_choice]['label']} 服务未就绪"
+    elif not target_status.get("endpoint", {}).get("ok"):
         phase = "loading"
         progress = 65
         message = "模型正在加载，接口暂未就绪"
@@ -1908,6 +1928,16 @@ def model_status():
         progress = 50
         message = "正在确认模型状态"
 
+    response_state = dict(state)
+    response_state.update({
+        "target": target_choice,
+        "phase": phase,
+        "progress": progress,
+        "ready": ready,
+        "active": active_choice,
+        "checkedAt": int(time.time() * 1000),
+    })
+
     return {
         "ok": True,
         "ready": ready,
@@ -1918,14 +1948,15 @@ def model_status():
         "targetLabel": VLLM_MODEL_CHOICES[target_choice]["label"],
         "active": active_choice,
         "activeLabel": VLLM_MODEL_CHOICES.get(active_choice, {}).get("label", ""),
-        "service": service_state,
-        "endpoint": endpoint,
-        "state": state,
+        "service": target_status.get("service"),
+        "endpoint": target_status.get("endpoint"),
+        "state": response_state,
         "choices": {
-            key: {"label": value["label"], "root": value["root"]}
+            key: {"label": value["label"], "root": value["root"], "port": value["port"], "service": value["service"]}
             for key, value in VLLM_MODEL_CHOICES.items()
         },
-        "logs": vllm_journal_lines(),
+        "choiceStatus": choice_status,
+        "logs": target_status.get("logs", []),
     }
 
 
@@ -1970,20 +2001,18 @@ def switch_vllm_model(choice):
     if not root.exists():
         raise RuntimeError(f"model directory missing: {root}")
     with MODEL_SWITCH_LOCK:
-        write_model_switch_state(target=choice, phase="switching", requestedAt=int(time.time() * 1000), error="")
-        VLLM_OVERRIDE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        VLLM_OVERRIDE_PATH.write_text(build_vllm_override(choice), encoding="utf-8")
-        daemon = run_quiet(["systemctl", "--user", "daemon-reload"], timeout=10)
-        if daemon.returncode != 0:
-            err = (daemon.stderr or daemon.stdout or "").strip()
-            write_model_switch_state(target=choice, phase="error", error=err)
-            raise RuntimeError(err or "systemctl daemon-reload failed")
-        restart = run_quiet(["systemctl", "--user", "restart", VLLM_SERVICE_NAME], timeout=20)
-        if restart.returncode != 0:
-            err = (restart.stderr or restart.stdout or "").strip()
-            write_model_switch_state(target=choice, phase="error", error=err)
-            raise RuntimeError(err or f"systemctl restart {VLLM_SERVICE_NAME} failed")
-        write_model_switch_state(target=choice, phase="loading", restartedAt=int(time.time() * 1000), error="")
+        write_model_switch_state(target=choice, phase="selected", requestedAt=int(time.time() * 1000), error="")
+        service_name = VLLM_MODEL_CHOICES[choice]["service"]
+        service_state = get_vllm_service_state(service_name)
+        if service_state != "active":
+            start = run_quiet(["systemctl", "--user", "start", service_name], timeout=20)
+            if start.returncode != 0:
+                err = (start.stderr or start.stdout or "").strip()
+                write_model_switch_state(target=choice, phase="error", error=err)
+                raise RuntimeError(err or f"systemctl start {service_name} failed")
+            write_model_switch_state(target=choice, phase="loading", startedAt=int(time.time() * 1000), error="")
+        else:
+            write_model_switch_state(target=choice, phase="ready-check", selectedAt=int(time.time() * 1000), error="")
     return model_status()
 
 
@@ -2852,7 +2881,7 @@ class Handler(BaseHTTPRequestHandler):
                     json_response(self, HTTPStatus.OK, {"ok": True, "suggestions": [], "meta": {"reason": "missing_question_or_answer"}})
                     return
                 status = model_status()
-                if not status.get("ready") or status.get("active") != llm_model:
+                if not status.get("choiceStatus", {}).get(llm_model, {}).get("ready"):
                     json_response(self, HTTPStatus.CONFLICT, {"error": "model_loading", "modelStatus": status})
                     return
                 suggestions, meta = generate_chat_suggestions(question, answer, citations, llm_model=llm_model)
@@ -2874,7 +2903,7 @@ class Handler(BaseHTTPRequestHandler):
                 knowledge_enabled = payload_bool(payload, "knowledgeEnabled", True)
                 llm_model = normalize_llm_choice(payload.get("llmModel"), FAST_LLM_DEFAULT_CHOICE)
                 status = model_status()
-                if not status.get("ready") or status.get("active") != llm_model:
+                if not status.get("choiceStatus", {}).get(llm_model, {}).get("ready"):
                     json_response(self, HTTPStatus.CONFLICT, {"error": "model_loading", "modelStatus": status})
                     return
                 append_message(session, "user", message)
