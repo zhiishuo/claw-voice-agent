@@ -138,14 +138,16 @@ export function initSessionList({ context, sessionService, chatContainer, enable
     if (!next || next === context.session) return;
     setAppSession(context, next);
     render(sessions);
-    onSessionChange?.(next);
     if (!isEnabled || !sessionService) {
       renderWelcome(chatContainer);
+      onSessionChange?.(next, []);
       return;
     }
     try {
       const data = await sessionService.loadMessages(next);
-      renderMessages(chatContainer, data?.messages || []);
+      const messages = data?.messages || [];
+      renderMessages(chatContainer, messages);
+      onSessionChange?.(next, messages);
     } catch (err) {
       chatContainer.innerHTML = `<div class="text-sm text-red-600">加载会话失败：${escapeHtml(err?.message || err)}</div>`;
     }
@@ -155,7 +157,7 @@ export function initSessionList({ context, sessionService, chatContainer, enable
     setAppSession(context, makeSessionId());
     renderWelcome(chatContainer);
     render(sessions);
-    onSessionChange?.(context.session);
+    onSessionChange?.(context.session, []);
   }
 
   async function deleteSession(session) {

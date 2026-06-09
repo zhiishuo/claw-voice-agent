@@ -14,6 +14,9 @@ import shutil
 
 # Mock 状态：追踪声纹注册情况
 _speaker_enrolled = {}  # speaker_id -> True
+_active_model = os.environ.get("OPENCLAW_FAST_LLM_DEFAULT", "30b").strip().lower()
+if _active_model not in {"7b", "30b"}:
+    _active_model = "30b"
 
 # mock 音频资源目录
 _MOCK_RESOURCE_DIR = pathlib.Path(os.path.dirname(__file__)) / "mock_resource"
@@ -262,8 +265,114 @@ def _mock_speaker_verify(payload, headers=None):
     }
 
 
+def _mock_model_status(params=None, headers=None):
+    """GET /api/model/status — 模拟模型状态，避免 mock 模式触发真实 vLLM 检查。"""
+    choices = {
+        "7b": {
+            "label": "Qwen2.5 7B Mock",
+            "root": "/mock/models/qwen2.5-7b",
+            "port": 8001,
+            "service": "mock-vllm-7b.service",
+        },
+        "30b": {
+            "label": "Qwen3 30B Mock",
+            "root": "/mock/models/qwen3-30b",
+            "port": 8000,
+            "service": "mock-vllm-30b.service",
+        },
+    }
+    choice_status = {}
+    for key, value in choices.items():
+        ready = key == _active_model
+        choice_status[key] = {
+            "ready": ready,
+            "service": "active",
+            "endpoint": {
+                "ok": True,
+                "root": value["root"],
+                "model": "mock-model",
+                "choice": key,
+                "error": "",
+            },
+            "label": value["label"],
+            "url": f"http://127.0.0.1:{value['port']}/v1/chat/completions",
+            "port": value["port"],
+            "root": value["root"],
+            "logs": ["mock model is ready"],
+        }
+    active_info = choices[_active_model]
+    return {
+        "ok": True,
+        "ready": True,
+        "phase": "ready",
+        "progress": 100,
+        "message": f"{active_info['label']} 已加载完成（Mock）",
+        "target": _active_model,
+        "targetLabel": active_info["label"],
+        "active": _active_model,
+        "activeLabel": active_info["label"],
+        "service": "active",
+        "endpoint": choice_status[_active_model]["endpoint"],
+        "state": {
+            "target": _active_model,
+            "phase": "ready",
+            "progress": 100,
+            "ready": True,
+            "active": _active_model,
+            "mock": True,
+        },
+        "choices": choices,
+        "choiceStatus": choice_status,
+        "logs": ["mock model is ready"],
+        "meta": {"mode": "mock"},
+    }
+
+
+def _mock_model_switch(payload, headers=None):
+    """POST /api/model/switch — 模拟模型切换，立即返回 ready。"""
+    global _active_model
+    value = str(payload.get("llmModel") or payload.get("model") or _active_model).strip().lower()
+    compact = "".join(ch for ch in value if ch.isalnum())
+    if compact in {"7", "7b"} or "7b" in compact:
+        _active_model = "7b"
+    elif compact in {"30", "30b"} or "30b" in compact:
+        _active_model = "30b"
+    return _mock_model_status()
+
+
+def _mock_knowledge_status(params=None, headers=None):
+    """GET /api/knowledge/status — 模拟知识库状态。"""
+    return {
+        "enabled": True,
+        "loaded": True,
+        "output_dir": ".mock-kb",
+        "model": "mock-embedding-model",
+        "mode": "hybrid",
+        "top_k": 4,
+        "error": None,
+        "meta": {"mode": "mock"},
+    }
+
+
+def _mock_knowledge_visualization(params=None, headers=None):
+    """GET /api/knowledge/visualization — 模拟知识库可视化。"""
+    return {
+        "available": True,
+        "method": "mock",
+        "points": [
+            {"x": 0.15, "y": 0.25, "source": "mock-doc-example.pdf", "text": "飞行前准备", "metadata": {"chunk_index": 0}},
+            {"x": 0.72, "y": 0.48, "source": "航空飞行知识库中文示例.txt", "text": "起飞和着陆", "metadata": {"chunk_index": 1}},
+            {"x": 0.38, "y": 0.78, "source": "pilot_handbook.pdf", "text": "巡航阶段", "metadata": {"chunk_index": 2}},
+        ],
+        "meta": {"mode": "mock"},
+    }
+
+
 # GET 路由表：path -> handler(query_params, headers) -> dict
 _GET_ROUTES = {
+    "/api/model/status": lambda params, headers: _mock_model_status(params, headers),
+    "/api/knowledge/status": lambda params, headers: _mock_knowledge_status(params, headers),
+    "/api/knowledge/visualization": lambda params, headers: _mock_knowledge_visualization(params, headers),
     "/api/speaker/status": lambda params, headers: _mock_speaker_status(params, headers),
 }
 
@@ -300,4 +409,5 @@ _ROUTES = {
     "/api/knowledge/search": _mock_knowledge_search,
     "/api/speaker/enroll": _mock_speaker_enroll,
     "/api/speaker/verify": _mock_speaker_verify,
+    "/api/model/switch": _mock_model_switch,
 }

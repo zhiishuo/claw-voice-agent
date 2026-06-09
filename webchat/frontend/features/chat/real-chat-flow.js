@@ -1,5 +1,4 @@
 import { makeId } from "../../core/ids.js";
-import { normalizeWakeText } from "../wake/wake-utils.js";
 
 // Configure marked for GFM + line breaks
 if (typeof marked !== "undefined") {
@@ -73,7 +72,7 @@ function renderCitationItems(citations = [], msgId) {
 function appendUserMessage(chatContainer, text, audioUrl) {
   const ts = new Date().toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit" });
   const audioHtml = audioUrl
-    ? `<div class="mt-2 flex justify-end">
+    ? `<div class="mt-2 flex justify-end" data-audio-player>
         <div class="audio-message-btn bg-green-50 border border-green-100 px-3 py-2 rounded-2xl flex items-center gap-3 cursor-pointer hover:bg-green-100 transition-colors shadow-sm w-fit" onclick="window.playTtsAudio(this)">
           <div class="play-icon-container w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white shadow-sm shrink-0 transition-colors">
             <i class="fa-solid fa-play ml-0.5 text-xs"></i>
@@ -114,12 +113,9 @@ function appendAssistantShell(chatContainer, requestId) {
           </div>
           <div class="flex flex-col gap-2 p-3 transition-all duration-300" id="progress-steps-${requestId}">
             <div class="flex items-center gap-2 text-blue-600 font-medium transition-colors" id="step1-${requestId}">
-              <i class="fa-solid fa-circle-notch fa-spin w-4 text-center"></i> <span>声纹与唤醒词检测</span>
+              <i class="fa-solid fa-circle-notch fa-spin w-4 text-center"></i> <span>Agent执行</span>
             </div>
             <div class="flex items-center gap-2 text-gray-400 transition-colors" id="step2-${requestId}">
-              <i class="fa-regular fa-circle w-4 text-center"></i> <span>Agent执行</span>
-            </div>
-            <div class="flex items-center gap-2 text-gray-400 transition-colors" id="step3-${requestId}">
               <i class="fa-regular fa-circle w-4 text-center"></i> <span>TTS语音生成</span>
             </div>
           </div>
@@ -272,7 +268,7 @@ function appendTtsAudio(requestId, audioUrl) {
   const container = document.getElementById(`tts-audio-${requestId}`);
   if (!container) return;
   container.innerHTML = `
-    <div class="mt-2">
+    <div class="mt-2" data-audio-player>
       <div class="audio-message-btn bg-blue-50 border border-blue-100 px-3 py-2 rounded-2xl flex items-center gap-3 cursor-pointer hover:bg-blue-100 transition-colors shadow-sm w-fit" onclick="window.playTtsAudio(this)">
         <div class="play-icon-container w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white shadow-sm shrink-0 transition-colors">
           <i class="fa-solid fa-play ml-0.5 text-xs"></i>
@@ -325,7 +321,7 @@ function setupTtsAutoplay(requestId) {
 
 function initTtsPlayerGlobals() {
   window.playTtsAudio = function (btn) {
-    const container = btn.closest(".flex-col") || btn.parentElement;
+    const container = btn.closest("[data-audio-player]") || btn.parentElement;
     const audioEl = container?.querySelector("audio");
     if (!audioEl) return;
 
@@ -373,10 +369,6 @@ function initTtsPlayerGlobals() {
       }
     }
   };
-}
-
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function showSuggestions(requestId, suggestions = []) {
@@ -446,34 +438,8 @@ export function createRealChatFlow({ chatContainer, chatService, ttsService, con
     }
 
     try {
-      // Step 1: 声纹与唤醒词检测
+      // 声纹与唤醒词校验已在发送前由 wake-card 完成，这里只展示后续处理进度。
       updateStep(requestId, 1, "active");
-      const wakeDetection = false;
-      if (wakeDetection) {
-        // 如果会话已通过唤醒验证，跳过此步骤
-        if (context?.sessionVerified?.get(context.session)) {
-          updateStep(requestId, 1, "done");
-        } else {
-          // 安全兜底：会话未验证但消息已发出（正常情况下唤醒卡片会阻止）
-          const wakePhrase = context?.settings?.wakePhrase || "";
-          if (wakePhrase) {
-            const inputNorm = normalizeWakeText(text);
-            const phraseNorm = normalizeWakeText(wakePhrase);
-            if (!inputNorm.includes(phraseNorm)) {
-              updateStep(requestId, 1, "error");
-              showError(requestId, `请先完成唤醒词和声纹校验`);
-              return;
-            }
-          }
-          await delay(300);
-          updateStep(requestId, 1, "done");
-        }
-      } else {
-        updateStep(requestId, 1, "done");
-      }
-
-      // Step 2: Agent 执行
-      updateStep(requestId, 2, "active");
       const data = await chatService.send({
         session: context.session,
         message: text,
@@ -486,7 +452,7 @@ export function createRealChatFlow({ chatContainer, chatService, ttsService, con
         : "";
       const reply = (data.reply || fallbackReply || "").trim();
       const citations = Array.isArray(data?.meta?.knowledge?.citations) ? data.meta.knowledge.citations : [];
-      updateStep(requestId, 2, "done");
+      updateStep(requestId, 1, "done");
 
       // Agent 完成后立即显示文字（不等 TTS）
       // 推荐追问统一抽成函数，流式模式下等文字弹完再调用
@@ -523,9 +489,9 @@ export function createRealChatFlow({ chatContainer, chatService, ttsService, con
         loadSuggestions();
       }
 
-      // Step 3: TTS 语音生成（异步，不阻塞文字显示）
+      // Step 2: TTS 语音生成（异步，不阻塞文字显示）
       if (context.settings.autoTts && reply && ttsService) {
-        updateStep(requestId, 3, "active");
+        updateStep(requestId, 2, "active");
         try {
           const ttsData = await ttsService.synthesize({
             text: reply,
@@ -534,7 +500,7 @@ export function createRealChatFlow({ chatContainer, chatService, ttsService, con
             session: context.session,
             requestId,
           });
-          updateStep(requestId, 3, "done");
+          updateStep(requestId, 2, "done");
 
           // TTS 完成后只添加音频播放按钮
           if (ttsData?.audio?.url) {
@@ -547,7 +513,7 @@ export function createRealChatFlow({ chatContainer, chatService, ttsService, con
           }
         } catch (ttsErr) {
           console.error("TTS 合成失败:", ttsErr);
-          updateStep(requestId, 3, "error");
+          updateStep(requestId, 2, "error");
         }
       }
 

@@ -352,15 +352,7 @@ export function initWakeCard({ wakeService, context, getDeviceId, onWakeSuccess 
 
       // 检测 mock 模式：仅显示模拟按钮，不自动通过
       if (data?.meta?.engine === "mock") {
-        if (!isMockMode) {
-          isMockMode = true;
-          const simBtn = $("wake-simulate-btn");
-          if (simBtn) {
-            simBtn.classList.remove("hidden");
-            simBtn.classList.add("flex");
-          }
-          updateStatus("Mock 模式：点击下方按钮模拟唤醒", "");
-        }
+        showMockSimulateButton();
         return; // mock 模式下不自动验证，等用户点按钮
       }
 
@@ -388,6 +380,16 @@ export function initWakeCard({ wakeService, context, getDeviceId, onWakeSuccess 
     } finally {
       pendingCheck = false;
     }
+  }
+
+  function showMockSimulateButton() {
+    isMockMode = true;
+    const simBtn = $("wake-simulate-btn");
+    if (simBtn) {
+      simBtn.classList.remove("hidden");
+      simBtn.classList.add("flex");
+    }
+    updateStatus("Mock 模式：点击下方按钮模拟唤醒", "");
   }
 
   function handleSimulate() {

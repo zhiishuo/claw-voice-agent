@@ -4,6 +4,47 @@
             font-family: 'Inter', sans-serif;
             background-color: #f9f9f9;
         }
+        :root {
+            --sidebar-width: 260px;
+        }
+        .app-sidebar {
+            width: var(--sidebar-width);
+            min-width: var(--sidebar-width);
+        }
+        .app-sidebar.sidebar-collapsed {
+            margin-left: calc(var(--sidebar-width) * -1);
+        }
+        .sidebar-resizer {
+            width: 8px;
+            flex: 0 0 8px;
+            cursor: col-resize;
+            position: relative;
+            z-index: 60;
+            background: transparent;
+            margin-left: -4px;
+            margin-right: -4px;
+        }
+        .sidebar-resizer::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 3px;
+            width: 2px;
+            background: transparent;
+            transition: background-color 0.15s ease;
+        }
+        .sidebar-resizer:hover::after,
+        .sidebar-resizer.is-dragging::after {
+            background: #3b82f6;
+        }
+        .sidebar-resizer.is-hidden {
+            display: none;
+        }
+        body.sidebar-resizing {
+            cursor: col-resize;
+            user-select: none;
+        }
         .no-scrollbar::-webkit-scrollbar {
             display: none;
         }

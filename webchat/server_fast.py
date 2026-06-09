@@ -2693,6 +2693,12 @@ class Handler(BaseHTTPRequestHandler):
         if not require_auth(self, parsed):
             json_response(self, HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
             return
+        if MOCK_MODE:
+            from mock import handle_mock_get
+            mock_result = handle_mock_get(parsed.path, query_params=urllib.parse.parse_qs(parsed.query), headers=self.headers)
+            if mock_result is not None:
+                json_response(self, HTTPStatus.OK, mock_result)
+                return
         if parsed.path == "/api/model/status":
             json_response(self, HTTPStatus.OK, model_status())
             return
@@ -2720,13 +2726,6 @@ class Handler(BaseHTTPRequestHandler):
             json_response(self, HTTPStatus.OK, {"session": session, "messages": load_messages(session)})
             return
         if parsed.path == "/api/speaker/status":
-            # Mock 模式
-            if MOCK_MODE:
-                from mock import handle_mock_get
-                mock_result = handle_mock_get(parsed.path, query_params=urllib.parse.parse_qs(parsed.query), headers=self.headers)
-                if mock_result is not None:
-                    json_response(self, HTTPStatus.OK, mock_result)
-                    return
             params = urllib.parse.parse_qs(parsed.query)
             speaker_id = (params.get("speaker_id") or [SPEAKER_VERIFIER.default_speaker_id])[0]
             json_response(self, HTTPStatus.OK, SPEAKER_VERIFIER.status(speaker_id))

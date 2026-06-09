@@ -182,9 +182,10 @@ document.addEventListener("DOMContentLoaded", () => {
     sessionService: services.sessions,
     chatContainer,
     enabled: !!context.token,
-    onSessionChange: () => {
-      // 切换会话后，隐藏当前唤醒卡片并检查新会话是否需要唤醒
+    onSessionChange: (session) => {
+      // 切换会话后先完成消息渲染，再重新要求当前会话完成唤醒校验。
       wakeCard.hide();
+      context.sessionVerified.delete(session || context.session);
       checkAndShowWakeCard();
     },
   });

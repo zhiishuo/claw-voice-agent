@@ -186,12 +186,9 @@ export function initRecorder({ textarea, transcriptionService, transcriptReview,
     try {
       const data = await transcriptionService.transcribe({ blob, filename, requestId });
       const text = (data.text || "").trim();
-      isRecording = false;
-      holdToTalkBtn.innerHTML = '<i class="fa-solid fa-microphone text-sm"></i>';
-      holdToTalkBtn.classList.remove("hold-to-talk-active");
-      recordingMask.classList.add("hidden");
-      recordingMask.classList.remove("flex");
       const audioUrl = URL.createObjectURL(blob);
+      // 转写成功后先恢复录音栏按钮；转写确认框只负责自己的遮罩和输入框状态。
+      resetRecordingUi();
       transcriptReview.show(text, audioUrl);
     } catch (err) {
       console.error("转写失败:", err);

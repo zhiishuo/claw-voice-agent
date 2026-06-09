@@ -12,7 +12,7 @@
 <body class="h-screen flex text-gray-800 overflow-hidden bg-white">
 
     <!-- ==================== 左侧导航栏 (Sidebar) ==================== -->
-    <div id="sidebar" class="w-[260px] bg-[#f9f9f9] flex-shrink-0 flex flex-col h-full transition-all duration-300 ease-in-out relative border-r border-gray-200 hidden md:flex z-50">
+    <div id="sidebar" class="app-sidebar bg-[#f9f9f9] flex-shrink-0 flex flex-col h-full transition-all duration-300 ease-in-out relative border-r border-gray-200 hidden md:flex z-50">
         <!-- 顶部 Logo 和 新建按钮 -->
         <div class="flex flex-col gap-2">
             <div class="flex justify-center pt-1 pb-1">
@@ -60,6 +60,7 @@
             </button>
         </div>
     </div>
+    <div id="sidebar-resizer" class="sidebar-resizer hidden md:block" title="拖动调整侧栏宽度，双击恢复默认"></div>
 
     <!-- 自定义右键菜单 -->
     <div id="context-menu" class="hidden absolute z-[100] bg-white border border-gray-100 shadow-lg rounded-lg py-1 w-32 text-sm transition-opacity duration-100">

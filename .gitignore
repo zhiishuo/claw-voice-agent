@@ -44,6 +44,8 @@ pytest_cache/
 AGENTS.md
 CLAUDE.md
 TEST_CHECKLIST.md
+#test
+webchat/test/
 # 服务器
 .codex_backups/
 .kb-pca/
