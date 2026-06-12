@@ -535,6 +535,8 @@ INDEX_HTML = r'''<!doctype html>
       lastAssistantReply: "",
       clientId: "",
       currentRequestId: "",
+      temperature: 0.3,
+      maxTokens: 2048,
       autoTts: true,
       ttsVoice: "zh-CN-XiaoxiaoNeural",
       ttsMode: "api",
@@ -1289,7 +1291,12 @@ INDEX_HTML = r'''<!doctype html>
             "X-Request-Id": requestId,
             "X-Session-Key": state.session,
           },
-          body: JSON.stringify({ session: state.session, message: text }),
+          body: JSON.stringify({
+            session: state.session,
+            message: text,
+            temperature: state.temperature,
+            max_tokens: state.maxTokens,
+          }),
         });
         await ensureVisibleStep("claw", 900);
         renderMessages(data.messages || []);
@@ -2031,6 +2038,34 @@ def payload_bool(payload, name, default=True):
     return str(value).strip().lower() not in {"0", "false", "no", "off"}
 
 
+def payload_float(payload, name, default=None, min_value=None, max_value=None):
+    if not isinstance(payload, dict) or payload.get(name) in (None, ""):
+        return default
+    try:
+        value = float(payload.get(name))
+    except (TypeError, ValueError):
+        return default
+    if min_value is not None:
+        value = max(min_value, value)
+    if max_value is not None:
+        value = min(max_value, value)
+    return value
+
+
+def payload_int(payload, name, default=None, min_value=None, max_value=None):
+    if not isinstance(payload, dict) or payload.get(name) in (None, ""):
+        return default
+    try:
+        value = int(payload.get(name))
+    except (TypeError, ValueError):
+        return default
+    if min_value is not None:
+        value = max(min_value, value)
+    if max_value is not None:
+        value = min(max_value, value)
+    return value
+
+
 def append_message(session, role, content):
     with LOCK:
         messages = load_messages(session)
@@ -2134,7 +2169,7 @@ def run_fast_llm_legacy_unused(session, message, knowledge_enabled=True):
     }
 
 
-def run_fast_llm(session, message, knowledge_enabled=True, llm_model=None):
+def run_fast_llm(session, message, knowledge_enabled=True, llm_model=None, temperature=None, max_tokens=None):
     llm_choice, llm_config = resolve_fast_llm_config(llm_model)
     history = load_messages(session)[-(FAST_HISTORY_TURNS * 2):] if FAST_HISTORY_TURNS > 0 else []
     if knowledge_enabled:
@@ -2157,8 +2192,8 @@ def run_fast_llm(session, message, knowledge_enabled=True, llm_model=None):
     payload = {
         "model": llm_config["model"],
         "messages": messages,
-        "temperature": 0.2,
-        "max_tokens": llm_config["max_tokens"],
+        "temperature": temperature if temperature is not None else 0.2,
+        "max_tokens": max_tokens if max_tokens is not None else llm_config["max_tokens"],
         "stream": False,
     }
     req = urllib.request.Request(
@@ -2184,6 +2219,8 @@ def run_fast_llm(session, message, knowledge_enabled=True, llm_model=None):
         "llmModel": llm_choice,
         "llmLabel": llm_config["label"],
         "llmUrl": llm_config["url"],
+        "temperature": payload["temperature"],
+        "maxTokens": payload["max_tokens"],
         "elapsedMs": elapsed_ms,
         "usage": data.get("usage"),
         "knowledge": {
@@ -2276,9 +2313,16 @@ def generate_chat_suggestions(question, answer, citations, llm_model=None):
     }
 
 
-def run_chat_backend(session, message, knowledge_enabled=True, llm_model=None):
+def run_chat_backend(session, message, knowledge_enabled=True, llm_model=None, temperature=None, max_tokens=None):
     if FAST_MODE:
-        return run_fast_llm(session, message, knowledge_enabled=knowledge_enabled, llm_model=llm_model)
+        return run_fast_llm(
+            session,
+            message,
+            knowledge_enabled=knowledge_enabled,
+            llm_model=llm_model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
     return run_openclaw(session, message, knowledge_enabled=knowledge_enabled)
 
 
@@ -2901,13 +2945,24 @@ class Handler(BaseHTTPRequestHandler):
                     raise RuntimeError("message is required")
                 knowledge_enabled = payload_bool(payload, "knowledgeEnabled", True)
                 llm_model = normalize_llm_choice(payload.get("llmModel"), FAST_LLM_DEFAULT_CHOICE)
+                temperature = payload_float(payload, "temperature", default=None, min_value=0.0, max_value=2.0)
+                max_tokens = payload_int(payload, "max_tokens", default=None, min_value=1)
+                if max_tokens is None:
+                    max_tokens = payload_int(payload, "maxTokens", default=None, min_value=1)
                 status = model_status()
                 if not status.get("choiceStatus", {}).get(llm_model, {}).get("ready"):
                     json_response(self, HTTPStatus.CONFLICT, {"error": "model_loading", "modelStatus": status})
                     return
                 append_message(session, "user", message)
                 chat_start = time.perf_counter()
-                reply, meta = run_chat_backend(session, message, knowledge_enabled=knowledge_enabled, llm_model=llm_model)
+                reply, meta = run_chat_backend(
+                    session,
+                    message,
+                    knowledge_enabled=knowledge_enabled,
+                    llm_model=llm_model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
                 chat_elapsed_ms = int((time.perf_counter() - chat_start) * 1000)
                 messages = append_message(session, "assistant", reply)
                 log_event("chat_response", session=session, mode=meta.get("mode"), model=meta.get("model"), llmModel=meta.get("llmModel"), runId=meta.get("runId"), replyChars=len(reply), elapsedMs=chat_elapsed_ms, clientId=client_id, requestId=request_id)

@@ -14,6 +14,15 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
+function currentGenerationSettings(settings = {}) {
+  const model = settings.llmModel === "7b" ? "7b" : "30b";
+  const modelSettings = settings.llmGeneration?.[model] || {};
+  return {
+    temperature: modelSettings.temperature,
+    maxTokens: modelSettings.maxTokens,
+  };
+}
+
 function renderCitationItems(citations = [], msgId) {
   const items = Array.isArray(citations) ? citations.filter(Boolean).slice(0, 5) : [];
   if (!items.length) return "";
@@ -440,11 +449,14 @@ export function createRealChatFlow({ chatContainer, chatService, ttsService, con
     try {
       // 声纹与唤醒词校验已在发送前由 wake-card 完成，这里只展示后续处理进度。
       updateStep(requestId, 1, "active");
+      const generationSettings = currentGenerationSettings(context.settings);
       const data = await chatService.send({
         session: context.session,
         message: text,
         knowledgeEnabled: isKnowledgeEnabled(),
         llmModel: context.settings.llmModel || "30b",
+        temperature: generationSettings.temperature,
+        maxTokens: generationSettings.maxTokens,
         requestId,
       });
       const fallbackReply = Array.isArray(data.messages)
@@ -524,6 +536,8 @@ export function createRealChatFlow({ chatContainer, chatService, ttsService, con
         text,
         reply,
         llmModel: context.settings.llmModel || "30b",
+        temperature: generationSettings.temperature,
+        maxTokens: generationSettings.maxTokens,
         status: "ok",
       });
 

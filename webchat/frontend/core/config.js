@@ -11,4 +11,8 @@ export const DEFAULT_CONFIG = {
   streamingMode: true,
   wakeDetection: true,
   llmModel: "30b",
+  llmGeneration: {
+    "7b": { temperature: 0.2, maxTokens: 512 },
+    "30b": { temperature: 0.3, maxTokens: 2048 },
+  },
 };

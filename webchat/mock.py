@@ -17,6 +17,10 @@ _speaker_enrolled = {}  # speaker_id -> True
 _active_model = os.environ.get("OPENCLAW_FAST_LLM_DEFAULT", "30b").strip().lower()
 if _active_model not in {"7b", "30b"}:
     _active_model = "30b"
+_MOCK_LLM_GENERATION = {
+    "7b": {"temperature": 0.2, "max_tokens": 512},
+    "30b": {"temperature": 0.3, "max_tokens": 2048},
+}
 
 # mock 音频资源目录
 _MOCK_RESOURCE_DIR = pathlib.Path(os.path.dirname(__file__)) / "mock_resource"
@@ -59,11 +63,57 @@ def handle_mock_get(path, query_params=None, headers=None):
 # Mock 响应数据
 # ---------------------------------------------------------------------------
 
+def _normalize_mock_model(value, default=None):
+    text = str(value or default or _active_model).strip().lower()
+    compact = "".join(ch for ch in text if ch.isalnum())
+    if compact in {"7", "7b"} or "7b" in compact:
+        return "7b"
+    if compact in {"30", "30b"} or "30b" in compact:
+        return "30b"
+    return default if default in {"7b", "30b"} else _active_model
+
+
+def _payload_float(payload, name, default=None, min_value=None, max_value=None):
+    if not isinstance(payload, dict) or payload.get(name) in (None, ""):
+        return default
+    try:
+        value = float(payload.get(name))
+    except (TypeError, ValueError):
+        return default
+    if min_value is not None:
+        value = max(min_value, value)
+    if max_value is not None:
+        value = min(max_value, value)
+    return value
+
+
+def _payload_int(payload, name, default=None, min_value=None, max_value=None):
+    if not isinstance(payload, dict) or payload.get(name) in (None, ""):
+        return default
+    try:
+        value = int(payload.get(name))
+    except (TypeError, ValueError):
+        return default
+    if min_value is not None:
+        value = max(min_value, value)
+    if max_value is not None:
+        value = min(max_value, value)
+    return value
+
+
 def _mock_chat(payload, headers=None):
     """POST /api/chat — 模拟 LLM 对话回复"""
     session = payload.get("session", "mock-session")
     message = payload.get("message", "")
     knowledge_enabled = payload.get("knowledgeEnabled", True)
+    llm_model = _normalize_mock_model(payload.get("llmModel") or payload.get("model"))
+    defaults = _MOCK_LLM_GENERATION[llm_model]
+    temperature = _payload_float(payload, "temperature", defaults["temperature"], 0.0, 2.0)
+    max_tokens = _payload_int(payload, "max_tokens", None, 1)
+    if max_tokens is None:
+        max_tokens = _payload_int(payload, "maxTokens", defaults["max_tokens"], 1)
+    if max_tokens is None:
+        max_tokens = defaults["max_tokens"]
 
     reply = (
         "## 飞行的关键要素\n\n"
@@ -125,6 +175,15 @@ def _mock_chat(payload, headers=None):
         "meta": {
             "mode": "mock",
             "model": "mock-model",
+            "llmModel": llm_model,
+            "llmLabel": "Qwen2.5 7B Mock" if llm_model == "7b" else "Qwen3 30B Mock",
+            "temperature": temperature,
+            "maxTokens": max_tokens,
+            "usage": {
+                "prompt_tokens": 128,
+                "completion_tokens": min(max_tokens, 96),
+                "total_tokens": 128 + min(max_tokens, 96),
+            },
             "knowledge": {
                 "enabled": knowledge_enabled,
                 "disabled_by_request": not knowledge_enabled,
@@ -136,6 +195,7 @@ def _mock_chat(payload, headers=None):
 
 def _mock_chat_suggestions(payload, headers=None):
     """POST /api/chat/suggestions — 模拟推荐追问"""
+    llm_model = _normalize_mock_model(payload.get("llmModel"))
     return {
         "ok": True,
         "session": payload.get("session", ""),
@@ -144,7 +204,12 @@ def _mock_chat_suggestions(payload, headers=None):
             "按照仪表飞行规则飞行的航空器需要哪些设备？",
             "航空器在什么情况下可以改为按目视飞行规则飞行？",
         ],
-        "meta": {"mode": "mock"},
+        "meta": {
+            "mode": "mock",
+            "llmModel": llm_model,
+            "temperature": 0.4,
+            "maxTokens": 512,
+        },
     }
 
 
@@ -273,12 +338,16 @@ def _mock_model_status(params=None, headers=None):
             "root": "/mock/models/qwen2.5-7b",
             "port": 8001,
             "service": "mock-vllm-7b.service",
+            "temperature": _MOCK_LLM_GENERATION["7b"]["temperature"],
+            "max_tokens": _MOCK_LLM_GENERATION["7b"]["max_tokens"],
         },
         "30b": {
             "label": "Qwen3 30B Mock",
             "root": "/mock/models/qwen3-30b",
             "port": 8000,
             "service": "mock-vllm-30b.service",
+            "temperature": _MOCK_LLM_GENERATION["30b"]["temperature"],
+            "max_tokens": _MOCK_LLM_GENERATION["30b"]["max_tokens"],
         },
     }
     choice_status = {}
@@ -298,6 +367,8 @@ def _mock_model_status(params=None, headers=None):
             "url": f"http://127.0.0.1:{value['port']}/v1/chat/completions",
             "port": value["port"],
             "root": value["root"],
+            "temperature": value["temperature"],
+            "maxTokens": value["max_tokens"],
             "logs": ["mock model is ready"],
         }
     active_info = choices[_active_model]

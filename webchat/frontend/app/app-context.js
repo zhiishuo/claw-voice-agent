@@ -2,6 +2,16 @@ import { DEFAULT_CONFIG } from "../core/config.js";
 import { makeId, makeSessionId } from "../core/ids.js";
 import { readLocal, readSession, STORAGE_KEYS, writeLocal, writeSession } from "../core/storage.js";
 
+function readNumber(key, fallback) {
+  const value = Number(readLocal(key, String(fallback)));
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function readInteger(key, fallback) {
+  const value = Number.parseInt(readLocal(key, String(fallback)), 10);
+  return Number.isFinite(value) ? value : fallback;
+}
+
 export function createAppContext() {
   const url = new URL(window.location.href);
   const token = url.searchParams.get("token") || readSession(STORAGE_KEYS.authToken, "");
@@ -29,6 +39,16 @@ export function createAppContext() {
       streamingMode: readLocal(STORAGE_KEYS.streamingMode, DEFAULT_CONFIG.streamingMode ? "1" : "0") !== "0",
       wakeDetection: readLocal(STORAGE_KEYS.wakeDetection, DEFAULT_CONFIG.wakeDetection ? "1" : "0") !== "0",
       llmModel: readLocal(STORAGE_KEYS.llmModel, DEFAULT_CONFIG.llmModel) === "7b" ? "7b" : "30b",
+      llmGeneration: {
+        "7b": {
+          temperature: readNumber(STORAGE_KEYS.llmTemperature7b, DEFAULT_CONFIG.llmGeneration["7b"].temperature),
+          maxTokens: readInteger(STORAGE_KEYS.llmMaxTokens7b, DEFAULT_CONFIG.llmGeneration["7b"].maxTokens),
+        },
+        "30b": {
+          temperature: readNumber(STORAGE_KEYS.llmTemperature30b, DEFAULT_CONFIG.llmGeneration["30b"].temperature),
+          maxTokens: readInteger(STORAGE_KEYS.llmMaxTokens30b, DEFAULT_CONFIG.llmGeneration["30b"].maxTokens),
+        },
+      },
     },
   };
 }

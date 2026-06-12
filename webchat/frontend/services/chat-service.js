@@ -9,11 +9,11 @@ export function createChatService(http, { getClientId, getSession } = {}) {
   }
 
   return {
-    send({ session, message, knowledgeEnabled = true, llmModel = "30b", requestId }) {
+    send({ session, message, knowledgeEnabled = true, llmModel = "30b", temperature = 0.3, maxTokens = 2048, requestId }) {
       return http.request("/api/chat", {
         method: "POST",
         headers: commonHeaders(requestId),
-        body: JSON.stringify({ session, message, knowledgeEnabled, llmModel }),
+        body: JSON.stringify({ session, message, knowledgeEnabled, llmModel, temperature, max_tokens: maxTokens }),
       });
     },
 

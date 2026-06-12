@@ -1,4 +1,5 @@
 import { $ } from "../../core/dom.js";
+import { DEFAULT_CONFIG } from "../../core/config.js";
 import { STORAGE_KEYS, readLocal, writeLocal } from "../../core/storage.js";
 
 const TRACE_KEY = "openclaw-webchat-traces";
@@ -34,6 +35,25 @@ function escapeHtml(value) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+function clampNumber(value, fallback, min, max) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function clampInteger(value, fallback, min, max) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function readGenerationSetting(key, fallback, type) {
+  const raw = readLocal(key, String(fallback));
+  return type === "int"
+    ? clampInteger(raw, fallback, 1, 32768)
+    : clampNumber(raw, fallback, 0, 2);
 }
 
 function openModal(modalEl, contentEl) {
@@ -78,6 +98,10 @@ export function initSettingsModal({ context, debugService, speakerService } = {}
   const ttsModeSelect = $("setting-tts-mode");
   const voiceTypeSelect = $("setting-voice-type");
   const voiceModeSelect = $("setting-voice-mode");
+  const temperature7bInput = $("setting-temperature-7b");
+  const maxTokens7bInput = $("setting-max-tokens-7b");
+  const temperature30bInput = $("setting-temperature-30b");
+  const maxTokens30bInput = $("setting-max-tokens-30b");
   const autoTtsCheckbox = $("setting-auto-tts");
   const autoPlayCheckbox = $("setting-auto-play");
   const autoSendCheckbox = $("setting-auto-send");
@@ -123,6 +147,10 @@ export function initSettingsModal({ context, debugService, speakerService } = {}
     if (ttsModeSelect) ttsModeSelect.value = readLocal(STORAGE_KEYS.ttsMode, "microsoft");
     if (voiceTypeSelect) voiceTypeSelect.value = readLocal(STORAGE_KEYS.ttsVoice, "zh-CN-XiaoxiaoNeural");
     if (voiceModeSelect) voiceModeSelect.value = readLocal(STORAGE_KEYS.voiceInputMode, "ptt");
+    if (temperature7bInput) temperature7bInput.value = readGenerationSetting(STORAGE_KEYS.llmTemperature7b, DEFAULT_CONFIG.llmGeneration["7b"].temperature, "float");
+    if (maxTokens7bInput) maxTokens7bInput.value = readGenerationSetting(STORAGE_KEYS.llmMaxTokens7b, DEFAULT_CONFIG.llmGeneration["7b"].maxTokens, "int");
+    if (temperature30bInput) temperature30bInput.value = readGenerationSetting(STORAGE_KEYS.llmTemperature30b, DEFAULT_CONFIG.llmGeneration["30b"].temperature, "float");
+    if (maxTokens30bInput) maxTokens30bInput.value = readGenerationSetting(STORAGE_KEYS.llmMaxTokens30b, DEFAULT_CONFIG.llmGeneration["30b"].maxTokens, "int");
     if (autoTtsCheckbox) autoTtsCheckbox.checked = readLocal(STORAGE_KEYS.autoTts, "1") !== "0";
     if (autoPlayCheckbox) autoPlayCheckbox.checked = readLocal("openclaw-webchat-auto-play", "0") !== "0";
     if (autoSendCheckbox) autoSendCheckbox.checked = readLocal(STORAGE_KEYS.autoSend, "0") !== "0";
@@ -137,6 +165,16 @@ export function initSettingsModal({ context, debugService, speakerService } = {}
     const ttsMode = ttsModeSelect?.value || "microsoft";
     const ttsVoice = voiceTypeSelect?.value || "zh-CN-XiaoxiaoNeural";
     const voiceInputMode = voiceModeSelect?.value || "ptt";
+    const llmGeneration = {
+      "7b": {
+        temperature: clampNumber(temperature7bInput?.value, DEFAULT_CONFIG.llmGeneration["7b"].temperature, 0, 2),
+        maxTokens: clampInteger(maxTokens7bInput?.value, DEFAULT_CONFIG.llmGeneration["7b"].maxTokens, 1, 32768),
+      },
+      "30b": {
+        temperature: clampNumber(temperature30bInput?.value, DEFAULT_CONFIG.llmGeneration["30b"].temperature, 0, 2),
+        maxTokens: clampInteger(maxTokens30bInput?.value, DEFAULT_CONFIG.llmGeneration["30b"].maxTokens, 1, 32768),
+      },
+    };
     const autoTts = autoTtsCheckbox?.checked ?? true;
     const autoPlay = autoPlayCheckbox?.checked ?? true;
     const autoSend = autoSendCheckbox?.checked ?? false;
@@ -149,6 +187,10 @@ export function initSettingsModal({ context, debugService, speakerService } = {}
     writeLocal(STORAGE_KEYS.ttsMode, ttsMode);
     writeLocal(STORAGE_KEYS.ttsVoice, ttsVoice);
     writeLocal(STORAGE_KEYS.voiceInputMode, voiceInputMode);
+    writeLocal(STORAGE_KEYS.llmTemperature7b, llmGeneration["7b"].temperature);
+    writeLocal(STORAGE_KEYS.llmMaxTokens7b, llmGeneration["7b"].maxTokens);
+    writeLocal(STORAGE_KEYS.llmTemperature30b, llmGeneration["30b"].temperature);
+    writeLocal(STORAGE_KEYS.llmMaxTokens30b, llmGeneration["30b"].maxTokens);
     writeLocal(STORAGE_KEYS.autoTts, autoTts ? "1" : "0");
     writeLocal("openclaw-webchat-auto-play", autoPlay ? "1" : "0");
     writeLocal(STORAGE_KEYS.autoSend, autoSend ? "1" : "0");
@@ -165,6 +207,7 @@ export function initSettingsModal({ context, debugService, speakerService } = {}
       context.settings.autoPrependWake = autoPrependWake;
       context.settings.streamingMode = streamingMode;
       context.settings.wakeDetection = wakeDetection;
+      context.settings.llmGeneration = llmGeneration;
     }
   }
 

@@ -15,6 +15,10 @@ export const STORAGE_KEYS = {
   streamingMode: "openclaw-webchat-streaming-mode",
   wakeDetection: "openclaw-webchat-wake-detection",
   llmModel: "openclaw-webchat-llm-model",
+  llmTemperature7b: "openclaw-webchat-llm-temperature-7b",
+  llmMaxTokens7b: "openclaw-webchat-llm-max-tokens-7b",
+  llmTemperature30b: "openclaw-webchat-llm-temperature-30b",
+  llmMaxTokens30b: "openclaw-webchat-llm-max-tokens-30b",
 };
 
 export function readLocal(key, fallback = "") {
